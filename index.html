@@ -5,105 +5,116 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>웃는 고양이 관리자</title>
     <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50 text-gray-900 p-4">
+    <!-- Firebase SDK 로드 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    <header class="text-center mb-8">
-        <h1 class="text-2xl font-bold text-orange-500">🐱 웃는 고양이 x 세발자전거</h1>
-        <p class="text-sm text-gray-500">실시간 납품 및 재고 관리</p>
-    </header>
-
-    <!-- 1. 입고 입력 섹션 -->
-    <section class="bg-white p-6 rounded-2xl shadow-sm mb-6">
-        <h2 class="text-lg font-semibold mb-4 text-gray-700">🚚 신규 납품 등록</h2>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">제품 선택</label>
-                <select id="productSelect" class="w-full p-3 border rounded-xl bg-gray-50">
-                    <option value="고양이 인형 대">고양이 인형 대 (16,000원)</option>
-                    <option value="고양이 인형 걸이">고양이 인형 걸이 (16,000원)</option>
-                    <option value="고양이 키링">고양이 키링 (14,400원)</option>
-                    <option value="북커버">북커버 (20,000원)</option>
-                    <option value="양면 파우치">양면 파우치 (12,000원)</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">수량</label>
-                <input type="number" id="quantityInput" placeholder="0" class="w-full p-3 border rounded-xl bg-gray-50">
-            </div>
-            <button onclick="addStock()" class="w-full bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition">
-                납품 기록하기
-            </button>
-        </div>
-    </section>
-
-    <!-- 2. 현재 재고 현황 -->
-    <section class="bg-white p-6 rounded-2xl shadow-sm">
-        <h2 class="text-lg font-semibold mb-4 text-gray-700">📊 현재고 및 정산 현황</h2>
-        <div id="stockList" class="space-y-3">
-            <!-- 데이터가 여기에 표시됩니다 -->
-        </div>
-    </section>
-
-    <script>
-        // 초기 데이터 (엑셀의 마지막 재고 파악 기준)
-        let inventory = JSON.parse(localStorage.getItem('catInventory')) || {
-            "고양이 인형 대": 5,
-            "고양이 인형 걸이": 0,
-            "고양이 키링": 7,
-            "북커버": 6,
-            "양면 파우치": 4
+        // 1. Zorba님이 제공해주신 파이어베이스 설정
+        const firebaseConfig = {
+            apiKey: "AIzaSyAEBAXYTnTUUaBmEGJa1YLEQXP9g4kfRJ0",
+            authDomain: "laughingcat-e0108.firebaseapp.com",
+            projectId: "laughingcat-e0108",
+            storageBucket: "laughingcat-e0108.firebasestorage.app",
+            messagingSenderId: "272394722362",
+            appId: "1:272394722362:web:aa873bc9aa344c4ba4a903",
+            measurementId: "G-TRXM2NZ5FF"
         };
 
-        const prices = {
-            "고양이 인형 대": 16000,
-            "고양이 인형 걸이": 16000,
-            "고양이 키링": 14400,
-            "북커버": 20000,
-            "양면 파우치": 12000
+        // 2. 파이어베이스 초기화
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 제품 리스트 및 초기 재고 설정 (세발자전거 엑셀 기준)
+        const initialProducts = {
+            "고양이 인형 대": { price: 16000, stock: 5 },
+            "고양이 인형 걸이": { price: 16000, stock: 0 },
+            "고양이 키링": { price: 14400, stock: 7 },
+            "북커버": { price: 20000, stock: 6 },
+            "양면 파우치": { price: 12000, stock: 4 }
         };
 
-        function render() {
+        // 실시간 데이터 감시 및 화면 업데이트
+        onSnapshot(doc(db, "inventory", "current"), (docSnap) => {
+            if (!docSnap.exists()) {
+                // 데이터가 없으면 초기 데이터 생성
+                setDoc(doc(db, "inventory", "current"), initialProducts);
+            } else {
+                render(docSnap.data());
+            }
+        });
+
+        // 화면 그리기 함수
+        function render(data) {
             const list = document.getElementById('stockList');
             list.innerHTML = '';
             
-            for (const [name, count] of Object.entries(inventory)) {
+            for (const [name, info] of Object.entries(data)) {
                 const itemDiv = document.createElement('div');
-                itemDiv.className = "flex justify-between items-center p-3 bg-gray-50 rounded-lg";
+                itemDiv.className = "flex justify-between items-center p-3 bg-gray-50 rounded-lg shadow-sm";
                 itemDiv.innerHTML = `
                     <div>
                         <span class="font-medium">${name}</span>
-                        <p class="text-xs text-gray-400">공급가: ${prices[name].toLocaleString()}원</p>
+                        <p class="text-xs text-gray-400">공급가: ${info.price.toLocaleString()}원</p>
                     </div>
                     <div class="flex items-center gap-3">
-                        <span class="text-lg font-bold text-blue-600">${count}개</span>
-                        <button onclick="sellItem('${name}')" class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded">정산</button>
+                        <span class="text-lg font-bold text-orange-600">${info.stock}개</span>
+                        <button onclick="updateStock('${name}', -1)" class="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold">정산</button>
                     </div>
                 `;
                 list.appendChild(itemDiv);
             }
-            localStorage.setItem('catInventory', JSON.stringify(inventory));
         }
 
-        function addStock() {
+        // 재고 수정 함수 (전역 연결)
+        window.updateStock = async (name, change) => {
+            const docRef = doc(db, "inventory", "current");
+            await updateDoc(docRef, {
+                [`${name}.stock`]: increment(change)
+            });
+        };
+
+        // 납품 등록 함수 (전역 연결)
+        window.addStock = () => {
             const name = document.getElementById('productSelect').value;
             const qty = parseInt(document.getElementById('quantityInput').value);
             if (isNaN(qty) || qty <= 0) return alert("수량을 입력하세요.");
             
-            inventory[name] += qty;
+            updateStock(name, qty);
             document.getElementById('quantityInput').value = '';
-            render();
-        }
-
-        function sellItem(name) {
-            if (inventory[name] <= 0) return alert("재고가 없습니다.");
-            if (confirm(`${name} 1개를 정산 처리하시겠습니까? (재고 1 차감)`)) {
-                inventory[name] -= 1;
-                render();
-            }
-        }
-
-        render();
+        };
     </script>
+</head>
+<body class="bg-gray-100 text-gray-900 p-4">
+    <div class="max-w-md mx-auto">
+        <header class="text-center my-6">
+            <h1 class="text-2xl font-black text-orange-500">🐱 웃는 고양이 관리</h1>
+            <p class="text-sm text-gray-500 font-medium">파이어베이스 실시간 데이터베이스 연동됨</p>
+        </header>
+
+        <!-- 입고 섹션 -->
+        <section class="bg-white p-6 rounded-3xl shadow-md mb-6">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">🚚 납품 기록</h2>
+            <select id="productSelect" class="w-full p-4 border-none bg-gray-50 rounded-2xl mb-3 focus:ring-2 focus:ring-orange-500">
+                <option value="고양이 인형 대">고양이 인형 대</option>
+                <option value="고양이 인형 걸이">고양이 인형 걸이</option>
+                <option value="고양이 키링">고양이 키링</option>
+                <option value="북커버">북커버</option>
+                <option value="양면 파우치">양면 파우치</option>
+            </select>
+            <div class="flex gap-2">
+                <input type="number" id="quantityInput" placeholder="수량 입력" class="flex-1 p-4 border-none bg-gray-50 rounded-2xl focus:ring-2 focus:ring-orange-500">
+                <button onclick="addStock()" class="bg-orange-500 text-white px-6 rounded-2xl font-bold shadow-lg shadow-orange-200">등록</button>
+            </div>
+        </section>
+
+        <!-- 현황 섹션 -->
+        <section class="bg-white p-6 rounded-3xl shadow-md">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">📊 현재 재고</h2>
+            <div id="stockList" class="space-y-3">
+                <p class="text-center text-gray-400 py-10">데이터를 불러오는 중...</p>
+            </div>
+        </section>
+    </div>
 </body>
 </html>

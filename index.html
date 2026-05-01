@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>웃는 고양이 관리자</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK 로드 -->
+    <!-- Firebase SDK 로드 (리얼타임 데이터베이스용으로 변경) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // 1. Zorba님이 제공해주신 파이어베이스 설정
+        // 1. Zorba님의 파이어베이스 설정 (주소 추가됨)
         const firebaseConfig = {
             apiKey: "AIzaSyAEBAXYTnTUUaBmEGJa1YLEQXP9g4kfRJ0",
             authDomain: "laughingcat-e0108.firebaseapp.com",
@@ -18,14 +18,17 @@
             storageBucket: "laughingcat-e0108.firebasestorage.app",
             messagingSenderId: "272394722362",
             appId: "1:272394722362:web:aa873bc9aa344c4ba4a903",
-            measurementId: "G-TRXM2NZ5FF"
+            measurementId: "G-TRXM2NZ5FF",
+            // 📍 찾으셨던 그 주소를 여기에 넣었습니다!
+            databaseURL: "https://laughingcat-e0108-default-rtdb.firebaseio.com"
         };
 
         // 2. 파이어베이스 초기화
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        const db = getDatabase(app);
+        const inventoryRef = ref(db, 'inventory');
 
-        // 제품 리스트 및 초기 재고 설정 (세발자전거 엑셀 기준)
+        // 초기 재고 설정
         const initialProducts = {
             "고양이 인형 대": { price: 16000, stock: 5 },
             "고양이 인형 걸이": { price: 16000, stock: 0 },
@@ -34,13 +37,14 @@
             "양면 파우치": { price: 12000, stock: 4 }
         };
 
-        // 실시간 데이터 감시 및 화면 업데이트
-        onSnapshot(doc(db, "inventory", "current"), (docSnap) => {
-            if (!docSnap.exists()) {
-                // 데이터가 없으면 초기 데이터 생성
-                setDoc(doc(db, "inventory", "current"), initialProducts);
+        // 실시간 데이터 감시 (Realtime Database 방식)
+        onValue(inventoryRef, (snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+                // 데이터가 전혀 없으면 초기화
+                set(inventoryRef, initialProducts);
             } else {
-                render(docSnap.data());
+                render(data);
             }
         });
 
@@ -66,21 +70,30 @@
             }
         }
 
-        // 재고 수정 함수 (전역 연결)
-        window.updateStock = async (name, change) => {
-            const docRef = doc(db, "inventory", "current");
-            await updateDoc(docRef, {
-                [`${name}.stock`]: increment(change)
-            });
+        // 재고 수정 함수
+        window.updateStock = (name, change) => {
+            // 현재 화면의 값을 가져와서 계산
+            const stockElement = document.querySelector(`span[onclick*="${name}"]`) || {innerText: '0'}; 
+            // 실시간 DB 업데이트를 위해 해당 경로 지정
+            const itemRef = ref(db, `inventory/${name}`);
+            
+            // 기존 데이터의 수량을 가져오기 위해 스냅샷 확인 후 업데이트
+            onValue(itemRef, (snapshot) => {
+                const currentInfo = snapshot.val();
+                if (currentInfo) {
+                    const newStock = (currentInfo.stock || 0) + change;
+                    update(ref(db, `inventory/${name}`), { stock: newStock });
+                }
+            }, { onlyOnce: true });
         };
 
-        // 납품 등록 함수 (전역 연결)
+        // 납품 등록 함수
         window.addStock = () => {
             const name = document.getElementById('productSelect').value;
             const qty = parseInt(document.getElementById('quantityInput').value);
             if (isNaN(qty) || qty <= 0) return alert("수량을 입력하세요.");
             
-            updateStock(name, qty);
+            window.updateStock(name, qty);
             document.getElementById('quantityInput').value = '';
         };
     </script>
@@ -89,10 +102,9 @@
     <div class="max-w-md mx-auto">
         <header class="text-center my-6">
             <h1 class="text-2xl font-black text-orange-500">🐱 웃는 고양이 관리</h1>
-            <p class="text-sm text-gray-500 font-medium">파이어베이스 실시간 데이터베이스 연동됨</p>
+            <p class="text-sm text-gray-500 font-medium">리얼타임 데이터베이스 연동됨</p>
         </header>
 
-        <!-- 입고 섹션 -->
         <section class="bg-white p-6 rounded-3xl shadow-md mb-6">
             <h2 class="text-lg font-bold mb-4 flex items-center gap-2">🚚 납품 기록</h2>
             <select id="productSelect" class="w-full p-4 border-none bg-gray-50 rounded-2xl mb-3 focus:ring-2 focus:ring-orange-500">
@@ -108,7 +120,6 @@
             </div>
         </section>
 
-        <!-- 현황 섹션 -->
         <section class="bg-white p-6 rounded-3xl shadow-md">
             <h2 class="text-lg font-bold mb-4 flex items-center gap-2">📊 현재 재고</h2>
             <div id="stockList" class="space-y-3">

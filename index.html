@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>웃는 고양이 관리자</title>
+    <title>웃는 고양이 관리자 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK 로드 (리얼타임 데이터베이스용으로 변경) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // 1. Zorba님의 파이어베이스 설정 (주소 추가됨)
+        // 1. Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyAEBAXYTnTUUaBmEGJa1YLEQXP9g4kfRJ0",
             authDomain: "laughingcat-e0108.firebaseapp.com",
@@ -19,111 +18,157 @@
             messagingSenderId: "272394722362",
             appId: "1:272394722362:web:aa873bc9aa344c4ba4a903",
             measurementId: "G-TRXM2NZ5FF",
-            // 📍 찾으셨던 그 주소를 여기에 넣었습니다!
             databaseURL: "https://laughingcat-e0108-default-rtdb.firebaseio.com"
         };
 
-        // 2. 파이어베이스 초기화
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-        const inventoryRef = ref(db, 'inventory');
 
-        // 초기 재고 설정
-        const initialProducts = {
-            "고양이 인형 대": { price: 16000, stock: 5 },
-            "고양이 인형 걸이": { price: 16000, stock: 0 },
-            "고양이 키링": { price: 14400, stock: 7 },
-            "북커버": { price: 20000, stock: 6 },
-            "양면 파우치": { price: 12000, stock: 4 }
-        };
-
-        // 실시간 데이터 감시 (Realtime Database 방식)
-        onValue(inventoryRef, (snapshot) => {
-            const data = snapshot.val();
-            if (!data) {
-                // 데이터가 전혀 없으면 초기화
-                set(inventoryRef, initialProducts);
-            } else {
-                render(data);
-            }
-        });
-
-        // 화면 그리기 함수
-        function render(data) {
-            const list = document.getElementById('stockList');
-            list.innerHTML = '';
-            
-            for (const [name, info] of Object.entries(data)) {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = "flex justify-between items-center p-3 bg-gray-50 rounded-lg shadow-sm";
-                itemDiv.innerHTML = `
-                    <div>
-                        <span class="font-medium">${name}</span>
-                        <p class="text-xs text-gray-400">공급가: ${info.price.toLocaleString()}원</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="text-lg font-bold text-orange-600">${info.stock}개</span>
-                        <button onclick="updateStock('${name}', -1)" class="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold">정산</button>
-                    </div>
-                `;
-                list.appendChild(itemDiv);
-            }
+        // 오늘 날짜 표시 함수
+        function displayToday() {
+            const now = new Date();
+            const days = ['일', '월', '화', '수', '목', '금', '토'];
+            const dateStr = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일(${days[now.getDay()]})`;
+            document.getElementById('todayDate').innerText = dateStr;
+            document.getElementById('inputDate').valueAsDate = new Date(); // 입력창 날짜 기본값
         }
 
-        // 재고 수정 함수
-        window.updateStock = (name, change) => {
-            // 현재 화면의 값을 가져와서 계산
-            const stockElement = document.querySelector(`span[onclick*="${name}"]`) || {innerText: '0'}; 
-            // 실시간 DB 업데이트를 위해 해당 경로 지정
-            const itemRef = ref(db, `inventory/${name}`);
-            
-            // 기존 데이터의 수량을 가져오기 위해 스냅샷 확인 후 업데이트
-            onValue(itemRef, (snapshot) => {
-                const currentInfo = snapshot.val();
-                if (currentInfo) {
-                    const newStock = (currentInfo.stock || 0) + change;
-                    update(ref(db, `inventory/${name}`), { stock: newStock });
+        // 데이터 불러오기 및 집계
+        onValue(ref(db, 'records'), (snapshot) => {
+            const records = snapshot.val() || {};
+            const summary = {};
+
+            // 제품별 데이터 집계 (납품 - 판매 = 재고)
+            Object.values(records).forEach(rec => {
+                if (!summary[rec.product]) {
+                    summary[rec.product] = { supply: 0, sales: 0 };
                 }
-            }, { onlyOnce: true });
+                summary[rec.product].supply += Number(rec.supplyCount || 0);
+                summary[rec.product].sales += Number(rec.salesCount || 0);
+            });
+
+            renderTable(summary);
+        });
+
+        // 표 그리기
+        function renderTable(summary) {
+            const list = document.getElementById('inventoryBody');
+            list.innerHTML = '';
+            
+            const products = ["인형", "인형 걸이", "키링", "북커버", "파우치"];
+            // 기타 항목들 추출
+            const allProducts = Array.from(new Set([...products, ...Object.keys(summary)]));
+
+            allProducts.forEach(name => {
+                const data = summary[name] || { supply: 0, sales: 0 };
+                const stock = data.supply - data.sales;
+                
+                const row = document.createElement('tr');
+                row.className = "border-b text-sm";
+                row.innerHTML = `
+                    <td class="p-3 font-medium">${name}</td>
+                    <td class="p-3 text-center text-blue-600">${data.supply}</td>
+                    <td class="p-3 text-center text-red-600">${data.sales}</td>
+                    <td class="p-3 text-center font-bold ${stock < 0 ? 'text-red-500' : 'text-gray-700'}">${stock}</td>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        // 데이터 저장 함수
+        window.saveRecord = () => {
+            const date = document.getElementById('inputDate').value;
+            const select = document.getElementById('productSelect');
+            let product = select.value;
+            
+            if (product === "기타") {
+                product = document.getElementById('etcInput').value;
+                if (!product) return alert("기타 제품명을 입력하세요.");
+            }
+
+            const supply = Number(document.getElementById('supplyInput').value) || 0;
+            const sales = Number(document.getElementById('salesInput').value) || 0;
+
+            push(ref(db, 'records'), {
+                date,
+                product,
+                supplyCount: supply,
+                salesCount: sales,
+                timestamp: serverTimestamp()
+            }).then(() => {
+                alert("기록 완료!");
+                resetForm();
+            });
         };
 
-        // 납품 등록 함수
-        window.addStock = () => {
-            const name = document.getElementById('productSelect').value;
-            const qty = parseInt(document.getElementById('quantityInput').value);
-            if (isNaN(qty) || qty <= 0) return alert("수량을 입력하세요.");
-            
-            window.updateStock(name, qty);
-            document.getElementById('quantityInput').value = '';
+        function resetForm() {
+            document.getElementById('supplyInput').value = '';
+            document.getElementById('salesInput').value = '';
+            document.getElementById('etcInput').classList.add('hidden');
+            document.getElementById('productSelect').value = '인형';
+        }
+
+        window.toggleEtc = (val) => {
+            const etcInput = document.getElementById('etcInput');
+            if (val === "기타") etcInput.classList.remove('hidden');
+            else etcInput.classList.add('hidden');
         };
+
+        window.onload = displayToday;
     </script>
 </head>
-<body class="bg-gray-100 text-gray-900 p-4">
-    <div class="max-w-md mx-auto">
-        <header class="text-center my-6">
-            <h1 class="text-2xl font-black text-orange-500">🐱 웃는 고양이 관리</h1>
-            <p class="text-sm text-gray-500 font-medium">리얼타임 데이터베이스 연동됨</p>
+<body class="bg-gray-50 p-4">
+    <div class="max-w-md mx-auto bg-white rounded-3xl shadow-lg overflow-hidden">
+        <!-- 헤더: 날짜 표시 -->
+        <header class="p-6 bg-orange-500 text-white">
+            <p id="todayDate" class="text-lg font-bold opacity-90"></p>
+            <h1 class="text-2xl font-black mt-1">🐱 웃는 고양이 관리</h1>
         </header>
 
-        <section class="bg-white p-6 rounded-3xl shadow-md mb-6">
-            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">🚚 납품 기록</h2>
-            <select id="productSelect" class="w-full p-4 border-none bg-gray-50 rounded-2xl mb-3 focus:ring-2 focus:ring-orange-500">
-                <option value="고양이 인형 대">고양이 인형 대</option>
-                <option value="고양이 인형 걸이">고양이 인형 걸이</option>
-                <option value="고양이 키링">고양이 키링</option>
-                <option value="북커버">북커버</option>
-                <option value="양면 파우치">양면 파우치</option>
-            </select>
-            <div class="flex gap-2">
-                <input type="number" id="quantityInput" placeholder="수량 입력" class="flex-1 p-4 border-none bg-gray-50 rounded-2xl focus:ring-2 focus:ring-orange-500">
-                <button onclick="addStock()" class="bg-orange-500 text-white px-6 rounded-2xl font-bold shadow-lg shadow-orange-200">등록</button>
-            </div>
+        <!-- 현황 테이블 섹션 -->
+        <section class="p-6">
+            <h2 class="text-sm font-bold text-gray-400 mb-3">📊 실시간 재고 현황</h2>
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-xs text-gray-500 border-b">
+                        <th class="p-2">제품명</th>
+                        <th class="p-2 text-center">납품</th>
+                        <th class="p-2 text-center">판매</th>
+                        <th class="p-2 text-center">재고</th>
+                    </tr>
+                </thead>
+                <tbody id="inventoryBody">
+                    <!-- 데이터 로딩 -->
+                </tbody>
+            </table>
         </section>
 
-        <section class="bg-white p-6 rounded-3xl shadow-md">
-            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">📊 현재 재고</h2>
-            <div id="stockList" class="space-y-3">
-                <p class="text-center text-gray-400 py-10">데이터를 불러오는 중...</p>
+        <!-- 입력 섹션 -->
+        <section class="p-6 bg-gray-50 border-t">
+            <button onclick="document.getElementById('inputForm').classList.toggle('hidden')" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-bold shadow-lg">
+                📝 새로운 데이터 입력
+            </button>
+
+            <div id="inputForm" class="hidden mt-4 space-y-3">
+                <input type="date" id="inputDate" class="w-full p-4 rounded-xl border-none ring-1 ring-gray-200">
+                
+                <select id="productSelect" onchange="toggleEtc(this.value)" class="w-full p-4 rounded-xl border-none ring-1 ring-gray-200">
+                    <option value="인형">인형</option>
+                    <option value="인형 걸이">인형 걸이</option>
+                    <option value="키링">키링</option>
+                    <option value="북커버">북커버</option>
+                    <option value="파우치">파우치</option>
+                    <option value="기타">기타 (직접 입력)</option>
+                </select>
+                
+                <input type="text" id="etcInput" placeholder="제품명 입력" class="hidden w-full p-4 rounded-xl border-none ring-1 ring-orange-300 bg-orange-50">
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="number" id="supplyInput" placeholder="납품 수량" class="p-4 rounded-xl border-none ring-1 ring-gray-200">
+                    <input type="number" id="salesInput" placeholder="판매 수량" class="p-4 rounded-xl border-none ring-1 ring-gray-200">
+                </div>
+                
+                <button onclick="saveRecord()" class="w-full bg-gray-800 text-white py-4 rounded-2xl font-bold">저장하기</button>
             </div>
         </section>
     </div>

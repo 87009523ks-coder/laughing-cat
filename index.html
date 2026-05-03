@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>웃는 고양이×세발자전거 관리자</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 드래그 앤 드롭 기능을 위한 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, onValue, push, serverTimestamp, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -23,65 +25,97 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         let allRecords = {};
+        let productOrder = [];
 
+        // 초기화 및 순서 로드
         function init() {
             const now = new Date();
             const days = ['일', '월', '화', '수', '목', '금', '토'];
             document.getElementById('headerDate').innerText = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일(${days[now.getDay()]})`;
             document.querySelectorAll('input[type="date"]').forEach(el => el.valueAsDate = now);
+            
+            // Firebase에서 저장된 순서 가져오기
+            onValue(ref(db, 'settings/order'), (snapshot) => {
+                productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미"];
+                if (Object.keys(allRecords).length > 0) processData();
+            });
         }
 
         onValue(ref(db, 'records'), (snapshot) => {
             allRecords = snapshot.val() || {};
+            processData();
+        });
+
+        function processData() {
             const summary = {};
             let monthlySettle = 0; let monthlySales = 0;
             let totalSettle = 0; let totalSales = 0;
-            
             const currentMonth = new Date().toISOString().substring(0, 7);
 
             Object.values(allRecords).forEach(rec => {
                 const prod = rec.product || "";
-                
-                // 1. 재고 계산 (제품명이 '결제'가 아닌 경우만)
                 if (prod !== "결제" && prod !== "통합결제") {
                     if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                     summary[prod].supply += Number(rec.supplyCount || 0);
                     summary[prod].sales += Number(rec.salesCount || 0);
                 }
-
-                // 2. 누적 금액 계산 (모든 'settleAmount' 합산)
                 const sAmount = Number(rec.settleAmount || 0);
                 const sQty = Number(rec.salesCount || 0);
-                
                 totalSettle += sAmount;
                 totalSales += sQty;
-
-                // 3. 이번 달 계산
                 if (rec.date && rec.date.startsWith(currentMonth)) {
                     monthlySettle += sAmount;
                     monthlySales += sQty;
                 }
             });
-            
             renderTable(summary);
             renderStats(monthlySettle, monthlySales, totalSettle, totalSales);
-        });
+        }
 
         function renderTable(summary) {
             const body = document.getElementById('inventoryBody');
             body.innerHTML = '';
-            const defaults = ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미"];
-            const products = Array.from(new Set([...defaults, ...Object.keys(summary)]));
-            products.forEach(name => {
+            
+            // 저장된 순서대로 표시 (목록에 없는 제품은 맨 뒤로)
+            const currentProducts = Object.keys(summary);
+            let displayList = productOrder.filter(p => currentProducts.includes(p) || productOrder.includes(p));
+            currentProducts.forEach(p => { if(!displayList.includes(p)) displayList.push(p); });
+
+            displayList.forEach(name => {
                 const { supply, sales } = summary[name] || { supply: 0, sales: 0 };
                 const stock = supply - sales;
                 const tr = document.createElement('tr');
-                tr.className = "border-b text-sm cursor-pointer hover:bg-orange-50 transition-colors";
-                tr.onclick = () => showDetails('product', name);
-                tr.innerHTML = `<td class="p-4 font-medium">${name}</td><td class="p-4 text-center text-blue-500">${supply}</td><td class="p-4 text-center text-red-500">${sales}</td><td class="p-4 text-center font-black text-gray-800">${stock}</td>`;
+                tr.className = "border-b text-sm transition-colors bg-white";
+                tr.setAttribute('data-id', name);
+                tr.innerHTML = `
+                    <td class="p-4 cursor-move text-gray-300 handle">≡</td>
+                    <td class="p-4 font-medium cursor-pointer" onclick="showDetails('product', '${name}')">${name}</td>
+                    <td class="p-4 text-center text-blue-500">${supply}</td>
+                    <td class="p-4 text-center text-red-500">${sales}</td>
+                    <td class="p-4 text-center font-black text-gray-800">${stock}</td>
+                    <td class="p-4 text-center">
+                        <button onclick="removeProduct('${name}')" class="text-gray-300 hover:text-red-400">✕</button>
+                    </td>`;
                 body.appendChild(tr);
             });
+
+            // 드래그 기능 활성화
+            new Sortable(body, {
+                handle: '.handle',
+                animation: 150,
+                onEnd: function() {
+                    const newOrder = Array.from(body.querySelectorAll('tr')).map(tr => tr.getAttribute('data-id'));
+                    set(ref(db, 'settings/order'), newOrder);
+                }
+            });
         }
+
+        window.removeProduct = (name) => {
+            if(confirm(`[${name}] 제품을 목록에서 숨길까요?\n(기존 입력된 데이터는 삭제되지 않습니다.)`)) {
+                const newOrder = productOrder.filter(p => p !== name);
+                set(ref(db, 'settings/order'), newOrder);
+            }
+        };
 
         function renderStats(mSettle, mSales, tSettle, tSales) {
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
@@ -113,11 +147,11 @@
         };
 
         window.updateValue = (id, field, value) => update(ref(db, `records/${id}`), { [field]: Number(value) });
-        window.deleteRecord = (id) => confirm("삭제하시겠습니까?") && remove(ref(db, `records/${id}`));
+        window.deleteRecord = (id) => confirm("기록을 삭제하시겠습니까?") && remove(ref(db, `records/${id}`));
         window.openCalendar = () => document.getElementById('historyDatePicker').classList.toggle('hidden');
 
         window.saveData = (type) => {
-            let product, supply = 0, sales = 0, price = 0, settle = 0, date;
+            let product, supply = 0, sales = 0, settle = 0, date;
             if (type === 'basic') {
                 date = document.getElementById('bDate').value;
                 product = document.getElementById('bProd').value === '기타' ? document.getElementById('bEtc').value : document.getElementById('bProd').value;
@@ -130,23 +164,15 @@
                 sales = Number(document.getElementById('sQty').value) || 0;
             }
             if (!product) return alert("제품명 입력!");
-            push(ref(db, 'records'), { date, product, supplyCount: supply, salesCount: sales, price, settleAmount: settle, timestamp: serverTimestamp() })
+            push(ref(db, 'records'), { date, product, supplyCount: supply, salesCount: sales, settleAmount: settle, timestamp: serverTimestamp() })
                 .then(() => { alert("저장 완료!"); document.querySelectorAll('input[type="number"]').forEach(i => i.value = ''); });
         };
 
         window.toggleEtc = (selectId, etcId) => document.getElementById(etcId).classList.toggle('hidden', document.getElementById(selectId).value !== '기타');
-        window.calcSettle = (base) => {
-            const price = Number(document.getElementById('sPrice').value) || 0;
-            const rate = Number(document.getElementById('sRate').value) || 0;
-            const total = Number(document.getElementById('sTotal').value) || 0;
-            if (base === 'rate' && price) document.getElementById('sTotal').value = Math.round(price * (rate / 100));
-            else if (base === 'total' && price) document.getElementById('sRate').value = ((total / price) * 100).toFixed(1);
-        };
-
         window.onload = init;
     </script>
 </head>
-<body class="bg-gray-100 p-4 pb-24">
+<body class="bg-gray-100 p-4 pb-24 font-sans tracking-tight">
     <div class="max-w-md mx-auto space-y-4">
         <!-- 헤더 -->
         <header class="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border-b-4 border-orange-100">
@@ -159,29 +185,29 @@
             </div>
         </header>
 
-        <!-- 정산 요약 카드 -->
-        <section class="bg-gray-900 p-6 rounded-3xl shadow-xl text-white space-y-6">
+        <!-- 정산 요약 카드 (오렌지색 그라데이션 적용) -->
+        <section class="bg-gradient-to-br from-orange-400 to-orange-600 p-6 rounded-3xl shadow-xl text-white space-y-6">
             <div>
                 <div class="flex justify-between items-center mb-2">
-                    <h2 class="text-xs font-bold text-orange-400">이번 달 현황 (MONTHLY)</h2>
-                    <span id="mCount" class="text-xs bg-orange-500/20 text-orange-400 px-2 py-1 rounded-md font-bold">0개</span>
+                    <h2 class="text-xs font-bold text-orange-100">이번 달 현황 (MONTHLY)</h2>
+                    <span id="mCount" class="text-xs bg-white/20 text-white px-2 py-1 rounded-md font-bold text-orange-50">0개</span>
                 </div>
                 <p id="mAmount" class="text-3xl font-black tracking-tight">0원</p>
             </div>
-            <div class="pt-4 border-t border-gray-800">
+            <div class="pt-4 border-t border-orange-300/50">
                 <div class="flex justify-between items-center mb-2">
-                    <h2 class="text-xs font-bold text-gray-500">누적 총 실적 (TOTAL)</h2>
-                    <span id="tCount" class="text-xs bg-gray-700 text-gray-400 px-2 py-1 rounded-md font-bold">0개</span>
+                    <h2 class="text-xs font-bold text-orange-200">누적 총 실적 (TOTAL)</h2>
+                    <span id="tCount" class="text-xs bg-black/10 text-white px-2 py-1 rounded-md font-bold">0개</span>
                 </div>
-                <p id="tAmount" class="text-xl font-bold text-gray-300">0원</p>
+                <p id="tAmount" class="text-xl font-bold text-white">0원</p>
             </div>
         </section>
 
-        <!-- 재고 현황판 -->
+        <!-- 재고 현황판 (순서변경 및 삭제기능 추가) -->
         <section class="bg-white rounded-3xl shadow-sm overflow-hidden">
             <table class="w-full text-left">
                 <thead class="bg-gray-50 text-[10px] text-gray-400 uppercase tracking-widest">
-                    <tr><th class="p-4 text-gray-500">제품명</th><th class="p-4 text-center">납품</th><th class="p-4 text-center">판매</th><th class="p-4 text-center text-orange-500">재고</th></tr>
+                    <tr><th class="p-4 w-8"></th><th class="p-4 text-gray-500">제품명</th><th class="p-4 text-center">납품</th><th class="p-4 text-center">판매</th><th class="p-4 text-center text-orange-500">재고</th><th class="p-4"></th></tr>
                 </thead>
                 <tbody id="inventoryBody"></tbody>
             </table>
@@ -195,10 +221,11 @@
 
         <!-- 입력 메뉴 -->
         <div class="grid grid-cols-2 gap-3">
-            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-gray-800 text-white p-4 rounded-2xl font-bold text-sm">📦 수량 기록</button>
-            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-4 rounded-2xl font-bold text-sm">💰 정산 기록</button>
+            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-gray-800 text-white p-4 rounded-2xl font-bold text-sm shadow-lg">📦 수량 기록</button>
+            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-4 rounded-2xl font-bold text-sm shadow-lg">💰 정산 기록</button>
         </div>
 
+        <!-- 입력창 로직 동일... -->
         <!-- 수량 입력 -->
         <section id="basicInput" class="hidden bg-white p-6 rounded-3xl shadow-xl space-y-3 border-2 border-gray-800">
             <input type="date" id="bDate" class="w-full p-4 bg-gray-50 rounded-xl border-none">

@@ -34,8 +34,13 @@
             const now = new Date();
             document.getElementById('headerDate').innerText = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일`;
             document.querySelectorAll('input[type="date"]').forEach(el => el.valueAsDate = now);
-            document.getElementById('monthFilter').value = now.toISOString().substring(0, 7);
             
+            const monthFilter = document.getElementById('monthFilter');
+            monthFilter.value = now.toISOString().substring(0, 7);
+            
+            // 필터 변경 시 데이터 재계산 이벤트 연결
+            monthFilter.addEventListener('change', processData);
+
             onValue(ref(db, 'records'), (snapshot) => {
                 allRecords = snapshot.val() || {};
                 processData();
@@ -43,7 +48,7 @@
 
             onValue(ref(db, 'settings/order'), (snapshot) => {
                 productOrder = snapshot.val() || DEFAULT_PRODUCTS;
-                if (Object.keys(allRecords).length > 0) processData();
+                processData();
             });
         }
 
@@ -55,24 +60,27 @@
             const monthlyChartData = {};
 
             Object.values(allRecords).forEach(rec => {
-                let prod = rec.product || "";
-                if (prod === "고양이 인형 대" || prod === "고양이 인형 걸이") prod = "고양이 인형";
-
-                if (prod !== "결제" && prod !== "통합 정산") {
-                    if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
-                    summary[prod].supply += Number(rec.supplyCount || 0);
-                    summary[prod].sales += Number(rec.salesCount || 0);
-                }
-                
+                let prod = rec.product || "미분류";
                 const sAmount = Number(rec.settleAmount || 0);
                 const sQty = Number(rec.salesCount || 0);
+                const iQty = Number(rec.supplyCount || 0);
+
+                // 1. 전체 누적 데이터 (날짜 무관)
                 totalSettle += sAmount;
                 totalSales += sQty;
 
+                // 2. 재고 계산용 요약 (품목별)
+                if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
+                summary[prod].supply += iQty;
+                summary[prod].sales += sQty;
+
+                // 3. 월간 실적 (선택된 달과 일치할 때만)
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     monthlySettle += sAmount;
                     monthlySales += sQty;
-                    if (sQty > 0) monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
+                    if (sQty > 0) {
+                        monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
+                    }
                 }
             });
 
@@ -82,38 +90,41 @@
             updateDropdowns(summary);
         }
 
-        function updateDropdowns(summary) {
-            const selects = ['bProd', 'sProd'];
-            const currentProducts = Object.keys(summary);
-            const combinedList = [...new Set([...DEFAULT_PRODUCTS, ...currentProducts])].filter(p => p !== "통합 정산");
+        function renderStats(mSettle, mSales, tSettle, tSales) {
+            // 이달의 수익 및 판매량 (주황색 카드)
+            document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
+            document.getElementById('mCount').innerText = mSales + '개';
+            // 누적 데이터 (카드 하단)
+            document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
+            document.getElementById('tCount').innerText = tSales + '개';
+        }
 
-            selects.forEach(id => {
-                const select = document.getElementById(id);
-                const currentValue = select.value;
-                select.innerHTML = id === 'sProd' ? '<option value="통합 정산">통합 정산</option>' : '<option value="">제품 선택</option>';
-                
-                combinedList.forEach(prod => {
-                    const opt = document.createElement('option');
-                    opt.value = prod;
-                    opt.innerText = prod;
-                    select.appendChild(opt);
-                });
-
-                const etcOpt = document.createElement('option');
-                etcOpt.value = '기타';
-                etcOpt.innerText = '기타 직접입력';
-                select.appendChild(etcOpt);
-                
-                if (currentValue) select.value = currentValue;
+        function updateChart(chartData) {
+            const ctx = document.getElementById('salesChart').getContext('2d');
+            let labels = Object.keys(chartData);
+            let data = Object.values(chartData);
+            let colors = ['#ffeaa7', '#fab1a0', '#ff7675', '#fdcb6e', '#e17055', '#d63031'];
+            
+            if (data.length === 0) { 
+                labels = ['기록 없음']; data = [1]; colors = ['rgba(255,255,255,0.2)']; 
+            }
+            
+            if (mainChart) mainChart.destroy();
+            mainChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#ff8c42' }] },
+                options: { 
+                    plugins: { legend: { display: false }, tooltip: { enabled: data[0] !== 1 } }, 
+                    cutout: '70%', responsive: true, maintainAspectRatio: false 
+                }
             });
         }
 
         function renderTable(summary) {
             const body = document.getElementById('inventoryBody');
             body.innerHTML = '';
-            const exclude = ["고양이 인형 대", "고양이 인형 걸이"];
-            const currentProducts = Object.keys(summary).filter(p => !exclude.includes(p));
-            let displayList = productOrder.filter(p => !exclude.includes(p) && (currentProducts.includes(p) || productOrder.includes(p)));
+            const currentProducts = Object.keys(summary);
+            let displayList = productOrder.filter(p => currentProducts.includes(p) || productOrder.includes(p));
             currentProducts.forEach(p => { if(!displayList.includes(p)) displayList.push(p); });
 
             displayList.forEach(name => {
@@ -138,45 +149,32 @@
             }});
         }
 
+        function updateDropdowns(summary) {
+            const selects = ['bProd', 'sProd'];
+            const currentProducts = Object.keys(summary);
+            const combinedList = [...new Set([...DEFAULT_PRODUCTS, ...currentProducts])].filter(p => p !== "통합 정산");
+            selects.forEach(id => {
+                const select = document.getElementById(id);
+                const currentValue = select.value;
+                select.innerHTML = id === 'sProd' ? '<option value="통합 정산">통합 정산</option>' : '<option value="">제품 선택</option>';
+                combinedList.forEach(prod => {
+                    const opt = document.createElement('option');
+                    opt.value = prod; opt.innerText = prod; select.appendChild(opt);
+                });
+                const etcOpt = document.createElement('option');
+                etcOpt.value = '기타'; etcOpt.innerText = '기타 직접입력'; select.appendChild(etcOpt);
+                if (currentValue) select.value = currentValue;
+            });
+        }
+
         window.removeProductAndData = (name) => {
             if (confirm(`[${name}] 제품과 관련된 모든 기록을 영구적으로 삭제하시겠습니까?`)) {
-                const newOrder = productOrder.filter(p => p !== name);
-                set(ref(db, 'settings/order'), newOrder);
                 Object.entries(allRecords).forEach(([id, rec]) => {
                     if (rec.product === name) remove(ref(db, `records/${id}`));
                 });
                 alert(`${name} 관련 데이터가 삭제되었습니다.`);
             }
         };
-
-        function renderStats(mSettle, mSales, tSettle, tSales) {
-            document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
-            document.getElementById('mCount').innerText = mSales + '개';
-            document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
-            document.getElementById('tCount').innerText = tSales + '개';
-        }
-
-        function updateChart(chartData) {
-            const ctx = document.getElementById('salesChart').getContext('2d');
-            let labels = Object.keys(chartData);
-            let data = Object.values(chartData);
-            // 시인성 개선: 주황색 배경에서 잘 보이는 선명한 색상 조합
-            let colors = ['#ffeaa7', '#fab1a0', '#ff7675', '#fdcb6e', '#e17055', '#d63031'];
-            
-            if (data.length === 0) { 
-                labels = ['기록 없음']; data = [1]; colors = ['rgba(255,255,255,0.2)']; 
-            }
-            
-            if (mainChart) mainChart.destroy();
-            mainChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#ff8c42' }] },
-                options: { 
-                    plugins: { legend: { display: false }, tooltip: { enabled: data[0] !== 1 } }, 
-                    cutout: '70%', responsive: true, maintainAspectRatio: false 
-                }
-            });
-        }
 
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
@@ -207,10 +205,7 @@
             const list = document.getElementById('detailList');
             list.innerHTML = '';
             let filtered = Object.entries(allRecords).filter(([id, rec]) => {
-                if (mode === 'product') {
-                    if (value === "고양이 인형") return rec.product === "고양이 인형" || rec.product === "고양이 인형 대" || rec.product === "고양이 인형 걸이";
-                    return rec.product === value;
-                }
+                if (mode === 'product') return rec.product === value;
                 return rec.date.startsWith(value);
             });
             filtered.sort((a, b) => new Date(b[1].date) - new Date(a[1].date));
@@ -246,12 +241,19 @@
                 <h1 class="text-2xl font-black leading-tight">웃는 고양이 <span class="text-orange-500">×</span> 세발자전거</h1>
                 <p id="headerDate" class="text-xs font-bold text-slate-400 mt-1"></p>
             </div>
-            <input type="month" id="monthFilter" onchange="processData()" class="bg-white border-none rounded-2xl px-4 py-2 text-xs font-black shadow-sm focus:ring-2 ring-orange-500">
+            <input type="month" id="monthFilter" class="bg-white border-none rounded-2xl px-4 py-2 text-xs font-black shadow-sm focus:ring-2 ring-orange-500 cursor-pointer">
         </header>
 
         <section class="orange-grad rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
-            <div class="relative z-10"><p class="text-[10px] font-black opacity-80 uppercase tracking-widest mb-1">Monthly Profit</p><p id="mAmount" class="text-5xl font-black mb-1">0원</p><p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p></div>
-            <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10"><div><p class="text-[10px] font-bold opacity-70">누적 정산액</p><p id="tAmount" class="text-lg font-black">0원</p></div><div class="text-right"><p class="text-[10px] font-bold opacity-70">누적 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div></div>
+            <div class="relative z-10">
+                <p class="text-[10px] font-black opacity-80 uppercase tracking-widest mb-1">Monthly Profit</p>
+                <p id="mAmount" class="text-5xl font-black mb-1">0원</p>
+                <p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p>
+            </div>
+            <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
+                <div><p class="text-[10px] font-bold opacity-70">누적 정산액</p><p id="tAmount" class="text-lg font-black">0원</p></div>
+                <div class="text-right"><p class="text-[10px] font-bold opacity-70">누적 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div>
+            </div>
             <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
         </section>
 

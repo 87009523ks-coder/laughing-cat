@@ -48,16 +48,24 @@
             const summary = {}; const monthlySummary = {};
             let mSettle = 0; let mSales = 0; let tSettle = 0; let tSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
+            const [fYear, fMonth] = filterMonth.split('-');
+            
+            // 문구 변경: "이번 달" -> "N월"
+            document.getElementById('settleTitle').innerText = `${parseInt(fMonth)}월 정산액`;
+            document.getElementById('salesTitle').innerText = `${parseInt(fMonth)}월 판매량`;
+
             const monthlyChartData = {};
 
             Object.values(allRecords).forEach(rec => {
                 let prod = rec.product || "미분류";
                 if (prod.includes("고양이 인형")) prod = "고양이 인형";
+                
                 if (prod === "결제") {
                     tSettle += Number(rec.settleAmount || 0);
                     if (rec.date && rec.date.startsWith(filterMonth)) mSettle += Number(rec.settleAmount || 0);
                     return;
                 }
+
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
@@ -68,7 +76,9 @@
                     if (!monthlySummary[prod]) monthlySummary[prod] = { supply: 0, sales: 0 };
                     monthlySummary[prod].supply += Number(rec.supplyCount || 0);
                     monthlySummary[prod].sales += Number(rec.salesCount || 0);
-                    if (Number(rec.salesCount) > 0) monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
+                    if (Number(rec.salesCount) > 0) {
+                        monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
+                    }
                 }
             });
 
@@ -81,8 +91,8 @@
         function renderStats(mSettle, mSales, tSettle, tSales) {
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
             document.getElementById('mCount').innerText = mSales + '개';
-            document.getElementById('tAmount').innerHTML = `<span class="text-black font-black">${tSettle.toLocaleString()}원</span>`;
-            document.getElementById('tCount').innerHTML = `<span class="text-black font-black">${tSales}개</span>`;
+            document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
+            document.getElementById('tCount').innerText = tSales + '개';
         }
 
         function renderTable(summary) {
@@ -96,7 +106,7 @@
                 const tr = document.createElement('tr');
                 tr.className = "border-b text-sm bg-white";
                 tr.setAttribute('data-id', name);
-                tr.innerHTML = `<td class="p-4 cursor-move text-gray-300 handle">≡</td><td class="p-4 font-medium">${name}</td><td class="p-4 text-center text-blue-500 font-bold">${supply}</td><td class="p-4 text-center text-red-500 font-bold">${sales}</td><td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-gray-800'}">${stock}</td><td class="p-4 text-center"></td>`;
+                tr.innerHTML = `<td class="p-4 cursor-move text-gray-300 handle">≡</td><td class="p-4 font-medium text-left">${name}</td><td class="p-4 text-center text-blue-500 font-bold">${supply}</td><td class="p-4 text-center text-red-500 font-bold">${sales}</td><td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-gray-800'}">${stock}</td>`;
                 body.appendChild(tr);
             });
             new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
@@ -120,48 +130,61 @@
                 div.onclick = (e) => { if(e.target.tagName !== 'BUTTON') prepareEdit(id, rec); };
                 let prodName = rec.product;
                 if (prodName.includes("고양이 인형")) prodName = "고양이 인형";
-                const mStock = monthlySummary[prodName] ? (monthlySummary[prodName].supply - monthlySummary[prodName].sales) : 0;
                 const detailInfo = Number(rec.settleAmount) > 0 
                     ? `<span class="text-orange-600">[정산]</span> <span class="font-bold">${rec.settleAmount.toLocaleString()}원</span>`
                     : `<span class="text-blue-500 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
 
-                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo} <span class="ml-1 text-slate-900 font-black">(월재고:${mStock})</span></div></div><button onclick="deleteRecord('${id}')" class="p-2 text-red-300">🗑️</button>`;
+                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="deleteRecord('${id}')" class="p-2 text-red-300">🗑️</button>`;
                 histBody.appendChild(div);
             });
         }
-
-        window.prepareEdit = (id, rec) => {
-            const isSettle = Number(rec.settleAmount) > 0;
-            if (isSettle) {
-                document.getElementById('settleInput').classList.remove('hidden');
-                document.getElementById('sDate').value = rec.date;
-                document.getElementById('sProd').value = rec.product;
-                document.getElementById('sQty').value = rec.salesCount;
-                document.getElementById('sTotal').value = rec.settleAmount;
-            } else {
-                document.getElementById('basicInput').classList.remove('hidden');
-                document.getElementById('bDate').value = rec.date;
-                document.getElementById('bProd').value = rec.product;
-                document.getElementById('bSupply').value = rec.supplyCount;
-                document.getElementById('bSales').value = rec.salesCount;
-            }
-            window.editingId = id;
-            window.scrollTo({ top: 500, behavior: 'smooth' });
-        };
 
         window.deleteRecord = (id) => { if (confirm("삭제할까요?")) remove(ref(db, `records/${id}`)); };
 
         function updateChart(chartData) {
             const ctx = document.getElementById('salesChart').getContext('2d');
-            let labels = Object.keys(chartData); let data = Object.values(chartData);
-            if (data.length === 0) { labels = ['기록없음']; data = [1]; }
+            let labels = Object.keys(chartData); 
+            let data = Object.values(chartData);
+            
             if (mainChart) mainChart.destroy();
+            
+            // 색상을 더 선명하게 변경
+            const colors = ['#ffffff', '#ffd700', '#00ced1', '#ff69b4', '#adff2f', '#ffa500'];
+
             mainChart = new Chart(ctx, {
                 type: 'doughnut',
-                data: { labels: labels, datasets: [{ data: data, backgroundColor: ['#ffeaa7','#fab1a0','#ff7675','#fdcb6e','#e17055','#d63031'], borderWidth: 0 }] },
-                options: { plugins: { legend: { display: false } }, cutout: '75%', responsive: true, maintainAspectRatio: false }
+                data: { 
+                    labels: labels, 
+                    datasets: [{ 
+                        data: data, 
+                        backgroundColor: colors, 
+                        borderColor: 'rgba(255,255,255,0.2)',
+                        borderWidth: 2,
+                        hoverOffset: 4
+                    }] 
+                },
+                options: { 
+                    plugins: { legend: { display: false } }, 
+                    cutout: '70%', 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    animation: { animateRotate: true }
+                }
             });
         }
+
+        window.magicInput = async () => {
+            const text = prompt("재미나가 준 글자를 여기에 붙여넣으세요");
+            if (!text) return;
+            try {
+                const data = JSON.parse(text);
+                if (confirm("기존 데이터를 모두 지우고 새로 입력할까요?")) {
+                    await set(ref(db, 'records'), null);
+                    for (const item of data) { await push(ref(db, 'records'), { ...item, timestamp: serverTimestamp() }); }
+                    alert("입력 완료!");
+                }
+            } catch (e) { alert("글자 오류!"); }
+        };
 
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
@@ -176,27 +199,10 @@
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
             if (!data.product) return alert("품목 선택!");
-            if (window.editingId) { remove(ref(db, `records/${window.editingId}`)); window.editingId = null; }
             push(ref(db, 'records'), data).then(() => { 
                 document.getElementById('basicInput').classList.add('hidden');
                 document.getElementById('settleInput').classList.add('hidden');
             });
-        };
-
-        // 🚀 재미나가 만든 자동 입력 마법 기능!
-        window.magicInput = async () => {
-            const text = prompt("재미나가 준 글자를 여기에 붙여넣으세요 (복사한 데이터)");
-            if (!text) return;
-            try {
-                const data = JSON.parse(text);
-                if (confirm("기존 데이터를 모두 지우고 새로 입력할까요?")) {
-                    await set(ref(db, 'records'), null);
-                    for (const item of data) {
-                        await push(ref(db, 'records'), { ...item, timestamp: serverTimestamp() });
-                    }
-                    alert("입력 완료! 장부가 새로워졌습니다.");
-                }
-            } catch (e) { alert("글자가 잘못 복사된 것 같아요."); }
         };
 
         window.onload = init;
@@ -212,31 +218,36 @@
             </div>
         </header>
 
-        <section class="bg-gradient-to-br from-orange-400 to-red-500 rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
-            <div class="relative z-10"><p class="text-[10px] font-black opacity-80 uppercase mb-1">이번 달 정산액</p><p id="mAmount" class="text-5xl font-black mb-1">0원</p><p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p></div>
-            <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
-                <div><p class="text-[10px] font-bold opacity-70">총 판매액</p><p id="tAmount" class="text-lg font-black"></p></div>
-                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수</p><p id="tCount" class="text-lg font-black"></p></div>
+        <section class="bg-gradient-to-br from-orange-500 to-red-600 rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
+            <div class="relative z-10">
+                <p id="settleTitle" class="text-[10px] font-black opacity-80 uppercase mb-1">정산액</p>
+                <p id="mAmount" class="text-5xl font-black mb-1 leading-tight">0원</p>
+                <p class="text-xs font-bold opacity-90"><span id="salesTitle">판매량</span>: <span id="mCount">0개</span></p>
             </div>
-            <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
+            <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
+                <div><p class="text-[10px] font-bold opacity-70">총 판매액 (전체)</p><p id="tAmount" class="text-lg font-black"></p></div>
+                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수 (전체)</p><p id="tCount" class="text-lg font-black"></p></div>
+            </div>
+            <!-- 그래프를 조금 더 크게, 선명하게 -->
+            <div class="absolute -right-2 top-4 w-36 h-36 opacity-90"><canvas id="salesChart"></canvas></div>
         </section>
 
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
-            <table class="w-full text-center"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400"><tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-orange-500">판매</th><th>재고</th><th></th></tr></thead><tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody></table>
+            <table class="w-full text-center"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400"><tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-orange-500">판매</th><th>재고</th></tr></thead><tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody></table>
         </section>
 
         <section class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 tracking-widest">📅 상세 내역</h3>
+            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 tracking-widest uppercase">상세 내역</h3>
             <div id="historyList" class="max-h-80 overflow-y-auto pr-2"></div>
         </section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
-            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl">📦 수량 기록</button>
-            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-[2rem] font-black shadow-2xl">💰 정산 기록</button>
+            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
+            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
         </div>
 
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
-            <h2 class="font-black text-lg">📦 수량 입력/수정</h2>
+            <h2 class="font-black text-lg">📦 수량 입력</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
@@ -246,13 +257,10 @@
         </section>
 
         <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
-            <h2 class="font-black text-lg text-orange-600">💰 정산 입력/수정</h2>
+            <h2 class="font-black text-lg text-orange-600">💰 정산 입력</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-            <select id="sProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-                <option value="결제">통합 정산 (결제)</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
-            </select>
-            <div class="grid grid-cols-2 gap-2"><input type="number" id="sPrice" placeholder="단가" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sRate" placeholder="정산율%" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"></div>
-            <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="수량" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sTotal" placeholder="정산금" class="p-4 bg-orange-50 text-orange-600 rounded-xl font-black"></div>
+            <input type="text" id="sProd" value="결제" readonly class="w-full p-4 bg-slate-100 rounded-2xl border-none font-bold text-gray-500">
+            <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="총 판매수량" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sTotal" placeholder="정산금액" class="p-4 bg-orange-50 text-orange-600 rounded-xl font-black"></div>
             <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-2xl font-black">저장하기</button>
         </section>
     </div>

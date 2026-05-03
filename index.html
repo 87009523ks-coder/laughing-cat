@@ -48,8 +48,8 @@
 
         function processData() {
             const summary = {};
-            let monthlySettle = 0; let monthlySales = 0;
-            let totalSettle = 0; let totalSales = 0;
+            let mSettle = 0; let mSales = 0;
+            let tSettle = 0; let tSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
             const monthlyChartData = {};
 
@@ -59,18 +59,14 @@
                 const iQty = Number(rec.supplyCount || 0);
                 let prod = rec.product || "미분류";
 
-                // 1. 금액 합산 (결제 포함 모든 데이터)
-                totalSettle += sAmount;
-                totalSales += sQty;
+                tSettle += sAmount;
+                tSales += sQty;
                 if (rec.date && rec.date.startsWith(filterMonth)) {
-                    monthlySettle += sAmount;
-                    monthlySales += sQty;
+                    mSettle += sAmount;
+                    mSales += sQty;
                 }
 
-                // 2. 품목명 통합 (인형 대, 인형 걸이 -> 고양이 인형)
                 if (prod.includes("고양이 인형")) prod = "고양이 인형";
-
-                // 3. 필터링 (결제 항목은 표/차트에서 제외)
                 if (prod === "결제") return;
 
                 if (rec.date && rec.date.startsWith(filterMonth) && sQty > 0) {
@@ -81,16 +77,17 @@
                 summary[prod].sales += sQty;
             });
 
-            renderStats(monthlySettle, monthlySales, totalSettle, totalSales);
+            renderStats(mSettle, mSales, tSettle, tSales);
             renderTable(summary);
+            renderHistory(filterMonth); // 히스토리 렌더링 추가
             updateChart(monthlyChartData);
         }
 
         function renderStats(mSettle, mSales, tSettle, tSales) {
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
             document.getElementById('mCount').innerText = mSales + '개';
-            document.getElementById('tAmount').innerHTML = `<span style="color: #000000; font-weight: 900;">${tSettle.toLocaleString()}원</span>`;
-            document.getElementById('tCount').innerHTML = `<span style="color: #000000; font-weight: 900;">${tSales}개</span>`;
+            document.getElementById('tAmount').innerHTML = `<span class="text-black font-black">${tSettle.toLocaleString()}원</span>`;
+            document.getElementById('tCount').innerHTML = `<span class="text-black font-black">${tSales}개</span>`;
         }
 
         function renderTable(summary) {
@@ -111,7 +108,7 @@
                     <td class="p-4 text-center text-blue-500 font-bold">${supply}</td>
                     <td class="p-4 text-center text-red-500 font-bold">${sales}</td>
                     <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-gray-800'}">${stock}</td>
-                    <td class="p-4 text-center"><button onclick="removeProduct('${name}')" class="text-gray-300">✕</button></td>`;
+                    <td class="p-4 text-center"></td>`; // 품목 자체 삭제는 위험하므로 비워둠
                 body.appendChild(tr);
             });
             new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
@@ -119,6 +116,44 @@
                 set(ref(db, 'settings/order'), newOrder);
             }});
         }
+
+        // --- 추가된 히스토리(수정/삭제) 기능 ---
+        function renderHistory(filterMonth) {
+            const histBody = document.getElementById('historyList');
+            histBody.innerHTML = '';
+            
+            // 최근 기록 순으로 정렬
+            const sortedRecords = Object.entries(allRecords)
+                .filter(([_, rec]) => rec.date && rec.date.startsWith(filterMonth))
+                .sort((a, b) => new Date(b[1].date) - new Date(a[1].date));
+
+            sortedRecords.forEach(([id, rec]) => {
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-xs";
+                
+                const isSettle = rec.settleAmount > 0;
+                const info = isSettle 
+                    ? `<span class="text-orange-600 font-bold">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
+                    : `<span class="text-blue-600 font-bold">[수량] 납품:${rec.supplyCount}/판매:${rec.salesCount}</span>`;
+
+                div.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-[10px] text-gray-400">${rec.date}</span>
+                        <span class="font-bold text-slate-700">${rec.product} | ${info}</span>
+                    </div>
+                    <button onclick="deleteRecord('${id}', '${rec.product}')" class="p-2 text-red-300 hover:text-red-500">🗑️</button>
+                `;
+                histBody.appendChild(div);
+            });
+        }
+
+        window.deleteRecord = (id, prod) => {
+            const msg = prod === '결제' ? "정산 기록을 삭제하시겠습니까? (합계 금액이 줄어듭니다)" : "이 기록을 삭제하시겠습니까?";
+            if (confirm(msg)) {
+                remove(ref(db, `records/${id}`)).then(() => alert("삭제되었습니다."));
+            }
+        };
+        // ------------------------------------
 
         function updateChart(chartData) {
             const ctx = document.getElementById('salesChart').getContext('2d');
@@ -128,19 +163,9 @@
             mainChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: { labels: labels, datasets: [{ data: data, backgroundColor: ['#ffeaa7','#fab1a0','#ff7675','#fdcb6e','#e17055','#d63031'], borderWidth: 0 }] },
-                options: { plugins: { legend: { display: false } }, cutout: '75%' }
+                options: { plugins: { legend: { display: false } }, cutout: '75%', responsive: true, maintainAspectRatio: false }
             });
         }
-
-        window.removeProduct = (name) => {
-            if (confirm(`[${name}] 관련 모든 기록을 삭제하시겠습니까?`)) {
-                Object.entries(allRecords).forEach(([id, rec]) => {
-                    if (rec.product === name || (name === "고양이 인형" && rec.product.includes("고양이 인형"))) {
-                        remove(ref(db, `records/${id}`));
-                    }
-                });
-            }
-        };
 
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
@@ -155,7 +180,11 @@
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
             if (!data.product) return alert("품목을 선택하세요!");
-            push(ref(db, 'records'), data).then(() => { alert("저장 완료!"); location.reload(); });
+            push(ref(db, 'records'), data).then(() => { 
+                alert("저장 완료!");
+                document.getElementById('basicInput').classList.add('hidden');
+                document.getElementById('settleInput').classList.add('hidden');
+            });
         };
 
         window.calcSettle = () => {
@@ -175,6 +204,7 @@
             <div><h1 class="text-2xl font-black">웃는 고양이 <span class="text-orange-500">×</span> 세발자전거</h1><p id="headerDate" class="text-xs font-bold text-slate-400 mt-1"></p></div>
             <input type="month" id="monthFilter" class="bg-white border-none rounded-2xl px-4 py-2 text-xs font-black shadow-sm">
         </header>
+
         <section class="orange-grad rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
             <div class="relative z-10"><p class="text-[10px] font-black opacity-80 uppercase mb-1">이번 달 정산액</p><p id="mAmount" class="text-5xl font-black mb-1">0원</p><p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p></div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
@@ -183,13 +213,24 @@
             </div>
             <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
         </section>
+
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
             <table class="w-full text-center"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400"><tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-orange-500">판매</th><th>재고</th><th></th></tr></thead><tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody></table>
         </section>
+
+        <!-- 상세 내역(수정/삭제용) 추가 -->
+        <section class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
+            <h3 class="font-black text-sm mb-4 text-slate-400">📅 이달의 상세 내역</h3>
+            <div id="historyList" class="max-h-60 overflow-y-auto pr-2">
+                <!-- 내역이 여기에 생성됨 -->
+            </div>
+        </section>
+
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
             <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl">📦 수량 기록</button>
             <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-[2rem] font-black shadow-2xl">💰 정산 기록</button>
         </div>
+
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4">
             <h2 class="font-black text-lg">📦 수량 직접 입력</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
@@ -199,6 +240,7 @@
             <div class="grid grid-cols-2 gap-3"><input type="number" id="bSupply" placeholder="납품(+)" class="p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center"><input type="number" id="bSales" placeholder="판매(-)" class="p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center"></div>
             <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">기록하기</button>
         </section>
+
         <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4">
             <h2 class="font-black text-lg text-orange-600">💰 정산 기록</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">

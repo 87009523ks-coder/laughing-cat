@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, set, onValue, push, serverTimestamp, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue, push, serverTimestamp, remove, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAEBAXYTnTUUaBmEGJa1YLEQXP9g4kfRJ0",
@@ -26,8 +26,8 @@
         let allRecords = {};
         let productOrder = [];
         let mainChart = null;
+        let editingId = null; // 수정 중인 항목의 ID 저장
 
-        // 원그래프와 완벽히 일치하는 컬러셋
         const colorPalette = ['#FFD93D', '#FF8B13', '#FF6B6B', '#4D96FF', '#6BCB77', '#9D72FF'];
         const productColors = {};
         const productBgColors = {};
@@ -47,21 +47,18 @@
                 productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
                 productOrder.forEach((name, i) => { 
                     productColors[name] = colorPalette[i % colorPalette.length];
-                    productBgColors[name] = colorPalette[i % colorPalette.length] + '22'; // 13% 투명도
+                    productBgColors[name] = colorPalette[i % colorPalette.length] + '22';
                 });
                 processData();
             });
         }
 
         function processData() {
-            const summary = {}; const monthlySummary = {};
-            let mSettle = 0; let mSales = 0; let tSettle = 0; let tSales = 0;
+            const summary = {}; let mSettle = 0; let mSales = 0; let tSettle = 0; let tSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
-            const [fYear, fMonth] = filterMonth.split('-');
-            
+            const [, fMonth] = filterMonth.split('-');
             document.getElementById('settleTitle').innerText = `${parseInt(fMonth)}월 정산액`;
             document.getElementById('salesTitle').innerText = `${parseInt(fMonth)}월 판매량`;
-
             const monthlyChartData = {};
 
             Object.values(allRecords).forEach(rec => {
@@ -78,9 +75,6 @@
                 tSales += Number(rec.salesCount || 0);
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     mSales += Number(rec.salesCount || 0);
-                    if (!monthlySummary[prod]) monthlySummary[prod] = { supply: 0, sales: 0 };
-                    monthlySummary[prod].supply += Number(rec.supplyCount || 0);
-                    monthlySummary[prod].sales += Number(rec.salesCount || 0);
                     if (Number(rec.salesCount) > 0) monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
                 }
             });
@@ -103,7 +97,6 @@
             body.innerHTML = '';
             let displayList = productOrder.filter(p => summary[p]);
             Object.keys(summary).forEach(p => { if(!displayList.includes(p)) displayList.push(p); });
-            
             displayList.forEach(name => {
                 const { supply, sales } = summary[name];
                 const stock = supply - sales;
@@ -113,34 +106,17 @@
                 tr.setAttribute('data-id', name);
                 tr.style.backgroundColor = rowBg;
                 tr.className = "border-b text-sm transition-colors";
-                tr.innerHTML = `
-                    <td class="p-4 cursor-move text-gray-400 handle">≡</td>
-                    <td class="p-4 text-left flex items-center gap-2 font-black text-slate-800">
-                        <div class="w-2.5 h-2.5 rounded-full" style="background-color: ${dotColor}"></div>
-                        ${name}
-                    </td>
-                    <td class="p-4 text-center text-blue-600 font-bold">${supply}</td>
-                    <td class="p-4 text-center text-red-500 font-bold">${sales}</td>
-                    <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>
-                `;
+                tr.innerHTML = `<td class="p-4 cursor-move text-gray-400 handle">≡</td><td class="p-4 text-left flex items-center gap-2 font-black text-slate-800"><div class="w-2.5 h-2.5 rounded-full" style="background-color: ${dotColor}"></div>${name}</td><td class="p-4 text-center text-blue-600 font-bold">${supply}</td><td class="p-4 text-center text-red-500 font-bold">${sales}</td><td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>`;
                 body.appendChild(tr);
             });
-
-            // 드래그 기능 복구
-            new Sortable(body, { 
-                handle: '.handle', 
-                animation: 150, 
-                onEnd: () => {
-                    const newOrder = Array.from(body.querySelectorAll('tr')).map(tr => tr.getAttribute('data-id'));
-                    set(ref(db, 'settings/order'), newOrder);
-                }
-            });
+            new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
+                const newOrder = Array.from(body.querySelectorAll('tr')).map(tr => tr.getAttribute('data-id'));
+                set(ref(db, 'settings/order'), newOrder);
+            }});
         }
 
         function renderHistory(filterMonth) {
             const histBody = document.getElementById('historyList');
-            const [year, month] = filterMonth.split('-');
-            document.getElementById('historyTitle').innerText = `📅 ${year}년 ${month}월 상세 내역`;
             histBody.innerHTML = '';
             const sortedRecords = Object.entries(allRecords)
                 .filter(([_, rec]) => rec.date && rec.date.startsWith(filterMonth))
@@ -148,14 +124,35 @@
 
             sortedRecords.forEach(([id, rec]) => {
                 const div = document.createElement('div');
-                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-[11px]";
+                div.className = "flex justify-between items-center p-4 bg-white rounded-2xl mb-2 text-[11px] shadow-sm cursor-pointer active:bg-slate-100";
+                div.onclick = () => startEdit(id, rec);
                 const detailInfo = Number(rec.settleAmount) > 0 
                     ? `<span class="text-amber-700 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
                     : `<span class="text-blue-600 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
-                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="deleteRecord('${id}')" class="p-2 text-red-300">🗑️</button>`;
+                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-red-300">🗑️</button>`;
                 histBody.appendChild(div);
             });
         }
+
+        window.startEdit = (id, rec) => {
+            editingId = id;
+            if (rec.product === "결제") {
+                document.getElementById('settleInput').classList.remove('hidden');
+                document.getElementById('basicInput').classList.add('hidden');
+                document.getElementById('sDate').value = rec.date;
+                document.getElementById('sQty').value = rec.salesCount;
+                document.getElementById('sTotal').value = rec.settleAmount;
+                document.getElementById('settleInput').scrollIntoView({ behavior: 'smooth' });
+            } else {
+                document.getElementById('basicInput').classList.remove('hidden');
+                document.getElementById('settleInput').classList.add('hidden');
+                document.getElementById('bDate').value = rec.date;
+                document.getElementById('bProd').value = rec.product;
+                document.getElementById('bSupply').value = rec.supplyCount;
+                document.getElementById('bSales').value = rec.salesCount;
+                document.getElementById('basicInput').scrollIntoView({ behavior: 'smooth' });
+            }
+        };
 
         window.deleteRecord = (id) => { if (confirm("삭제할까요?")) remove(ref(db, `records/${id}`)); };
 
@@ -164,7 +161,6 @@
             const labels = Object.keys(chartData);
             const data = Object.values(chartData);
             const colors = labels.map(label => productColors[label] || '#eee');
-
             if (mainChart) mainChart.destroy();
             mainChart = new Chart(ctx, {
                 type: 'doughnut',
@@ -172,17 +168,6 @@
                 options: { plugins: { legend: { display: false } }, cutout: '75%', responsive: true, maintainAspectRatio: false }
             });
         }
-
-        window.magicInput = async () => {
-            const text = prompt("데이터를 붙여넣으세요");
-            if (!text) return;
-            try {
-                const data = JSON.parse(text);
-                await set(ref(db, 'records'), null);
-                for (const item of data) { await push(ref(db, 'records'), { ...item, timestamp: serverTimestamp() }); }
-                alert("완료!");
-            } catch (e) { alert("오류!"); }
-        };
 
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
@@ -197,10 +182,36 @@
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
             if (!data.product || !data.date) return alert("데이터 확인!");
-            push(ref(db, 'records'), data).then(() => { 
-                document.getElementById('basicInput').classList.add('hidden');
-                document.getElementById('settleInput').classList.add('hidden');
-            });
+            
+            if (editingId) {
+                update(ref(db, `records/${editingId}`), data).then(() => {
+                    editingId = null;
+                    alert("수정 완료!");
+                    closeInputs();
+                });
+            } else {
+                push(ref(db, 'records'), data).then(() => closeInputs());
+            }
+        };
+
+        function closeInputs() {
+            document.getElementById('basicInput').classList.add('hidden');
+            document.getElementById('settleInput').classList.add('hidden');
+            document.getElementById('bSupply').value = '';
+            document.getElementById('bSales').value = '';
+            document.getElementById('sQty').value = '';
+            document.getElementById('sTotal').value = '';
+        }
+
+        window.magicInput = async () => {
+            const text = prompt("데이터를 붙여넣으세요");
+            if (!text) return;
+            try {
+                const data = JSON.parse(text);
+                await set(ref(db, 'records'), null);
+                for (const item of data) { await push(ref(db, 'records'), { ...item, timestamp: serverTimestamp() }); }
+                alert("완료!");
+            } catch (e) { alert("오류!"); }
         };
 
         window.onload = init;
@@ -238,32 +249,32 @@
             </table>
         </section>
 
-        <section class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 tracking-widest uppercase text-center">상세 내역</h3>
-            <div id="historyList" class="max-h-80 overflow-y-auto pr-2"></div>
+        <section class="bg-slate-100/50 p-6 rounded-[2.5rem] border border-slate-200">
+            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 tracking-widest uppercase text-center">상세 내역 (클릭시 수정)</h3>
+            <div id="historyList" class="max-h-96 overflow-y-auto pr-2"></div>
         </section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
-            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
-            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
+            <button onclick="editingId=null; document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
+            <button onclick="editingId=null; document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
         </div>
 
-        <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
-            <h2 class="font-black text-lg">📦 수량 입력</h2>
+        <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-slate-900">
+            <h2 class="font-black text-lg">📦 데이터 입력/수정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
             </select>
             <div class="grid grid-cols-2 gap-3"><input type="number" id="bSupply" placeholder="납품(+)" class="p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center"><input type="number" id="bSales" placeholder="판매(-)" class="p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center"></div>
-            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">저장하기</button>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">저장/수정하기</button>
         </section>
 
-        <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
-            <h2 class="font-black text-lg text-amber-600">💰 정산 입력</h2>
+        <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-amber-500">
+            <h2 class="font-black text-lg text-amber-600">💰 정산 입력/수정</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <input type="text" id="sProd" value="결제" readonly class="w-full p-4 bg-slate-100 rounded-2xl border-none font-bold text-gray-500">
             <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="판매수량" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sTotal" placeholder="정산금액" class="p-4 bg-amber-50 text-amber-600 rounded-xl font-black"></div>
-            <button onclick="saveData('settle')" class="w-full bg-amber-500 text-white p-5 rounded-2xl font-black">저장하기</button>
+            <button onclick="saveData('settle')" class="w-full bg-amber-500 text-white p-5 rounded-2xl font-black">저장/수정하기</button>
         </section>
     </div>
 </body>

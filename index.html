@@ -68,7 +68,7 @@
             const summary = {}; 
             let mSettle = 0; let mSales = 0; 
             let tSettle = 0; let tSales = 0;
-            const historyMap = {}; // 월별 히스토리용
+            const historyMap = {}; 
             const filterMonth = document.getElementById('monthFilter').value;
             const monthlyChartData = {};
 
@@ -82,8 +82,6 @@
                     const amt = Number(rec.settleAmount || 0);
                     tSettle += amt;
                     if (recMonth === filterMonth) mSettle += amt;
-                    
-                    // 히스토리 집계 (현재 선택월 제외)
                     if (recMonth !== filterMonth) {
                         historyMap[recMonth] = (historyMap[recMonth] || 0) + amt;
                     }
@@ -113,11 +111,9 @@
             updateChart(monthlyChartData);
         }
 
-        // 월간 정산 히스토리 렌더링
         function renderMonthlySettleHistory(historyMap) {
             const container = document.getElementById('monthlySettleList');
             container.innerHTML = '';
-            
             const sortedMonths = Object.keys(historyMap).sort().reverse();
             
             if (sortedMonths.length === 0) {
@@ -125,9 +121,11 @@
                 return;
             }
 
-            sortedMonths.forEach(m => {
+            sortedMonths.forEach((m, index) => {
                 const row = document.createElement('div');
-                row.className = "flex justify-between items-center py-4 border-b border-black/5 last:border-0 px-6";
+                // index에 따라 교차 배경색 적용 (짝수행 bg-slate-50, 홀수행 bg-white)
+                const bgColor = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/80';
+                row.className = `flex justify-between items-center py-4 px-6 ${bgColor} border-b border-black/5 last:border-0`;
                 row.innerHTML = `
                     <span class="text-[13px] text-slate-500 font-bold">${m.substring(2,4)}년 ${parseInt(m.substring(5))}월</span>
                     <span class="text-[15px] font-black text-slate-800">${historyMap[m].toLocaleString()}원</span>
@@ -137,21 +135,17 @@
         }
 
         window.toggleDashboardHistory = () => {
-            const el = document.getElementById('dashboardHistory');
-            el.classList.toggle('hidden');
+            document.getElementById('dashboardHistory').classList.toggle('hidden');
         };
 
         function renderCards(summary) {
             const container = document.getElementById('cardContainer');
             container.innerHTML = '';
-            
             productOrder.forEach(name => {
                 const data = summary[name] || { supply: 0, sales: 0, allDetails: [] };
                 const theme = productTheme[name] || { main: '#ccc', bg: 'rgba(200,200,200,0.1)' };
-                
                 const card = document.createElement('div');
                 card.className = "mb-4";
-                
                 const detailContent = data.allDetails.length > 0 
                     ? data.allDetails.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d => 
                         `<div onclick="startEdit('${d.id}', ${JSON.stringify(d).replace(/"/g, '&quot;')})" 
@@ -168,9 +162,7 @@
                     <div onclick="toggleDetail('${name.replace(/\s+/g, '')}')" style="background-color: ${theme.bg}" 
                          class="relative overflow-hidden backdrop-blur-sm rounded-[1.6rem] p-5 shadow-sm border border-white/40 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all">
                         <div class="absolute left-0 top-1/4 bottom-1/4 w-[3.5px] rounded-r-full" style="background-color: ${theme.main}"></div>
-                        <div class="w-[28%] pl-2">
-                            <span class="font-black text-slate-800 text-[14px] tracking-tighter truncate block">${name}</span>
-                        </div>
+                        <div class="w-[28%] pl-2"><span class="font-black text-slate-800 text-[14px] tracking-tighter truncate block">${name}</span></div>
                         <div class="flex-1 flex justify-center items-center gap-6 px-2">
                             <div class="text-center"><p class="text-[9px] text-slate-400 font-bold mb-0.5">납품</p><p class="text-blue-500 text-[19px] font-black leading-none">${data.supply}</p></div>
                             <div class="text-center"><p class="text-[9px] text-slate-400 font-bold mb-0.5">판매</p><p class="text-red-500 text-[19px] font-black leading-none">${data.sales}</p></div>
@@ -266,7 +258,6 @@
             </div>
         </header>
 
-        <!-- 대시보드 (클릭 시 히스토리 토글) -->
         <div class="space-y-2">
             <section onclick="toggleDashboardHistory()" class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white relative overflow-hidden flex flex-col justify-between h-60 cursor-pointer active:scale-[0.99] transition-all">
                 <div class="relative z-10">
@@ -282,9 +273,8 @@
                 </div>
             </section>
             
-            <!-- 월간 정산 히스토리 슬라이드 창 -->
-            <div id="dashboardHistory" class="hidden bg-white/80 rounded-[2rem] overflow-hidden border border-white/60 shadow-inner mx-2 transition-all">
-                <div class="bg-slate-100/50 py-3 px-6 text-[10px] font-black text-slate-400 tracking-widest border-b border-black/5">MONTHLY HISTORY</div>
+            <div id="dashboardHistory" class="hidden bg-white/90 rounded-[2rem] overflow-hidden border border-white/60 shadow-lg mx-1 transition-all">
+                <div class="bg-slate-100/80 py-3 px-6 text-[10px] font-black text-slate-400 tracking-[0.2em] uppercase border-b border-black/5">Monthly Sales History</div>
                 <div id="monthlySettleList"></div>
             </div>
         </div>
@@ -301,7 +291,6 @@
             <button onclick="openInput('settle')" class="bg-orange-500 text-white py-5 rounded-[2.2rem] font-black shadow-2xl active:scale-95 transition-all">💰 정산 기록</button>
         </div>
 
-        <!-- 입력 패널 생략 (위와 동일) -->
         <section id="basicInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-2xl z-[101] border border-slate-100">
             <div class="flex justify-between items-center mb-4"><h2 class="font-black text-lg">수량 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-2xl">✕</button></div>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl mb-4 font-bold outline-none">

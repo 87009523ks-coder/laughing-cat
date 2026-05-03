@@ -123,9 +123,9 @@
 
             sortedMonths.forEach((m, index) => {
                 const row = document.createElement('div');
-                // index에 따라 교차 배경색 적용 (짝수행 bg-slate-50, 홀수행 bg-white)
-                const bgColor = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/80';
-                row.className = `flex justify-between items-center py-4 px-6 ${bgColor} border-b border-black/5 last:border-0`;
+                // 캡처 이미지의 파스텔 블루(blue-50)와 민트(emerald-50) 교차 적용
+                const bgColor = index % 2 === 0 ? 'bg-blue-50/50' : 'bg-emerald-50/50';
+                row.className = `flex justify-between items-center py-4 px-6 ${bgColor} border-b border-white last:border-0`;
                 row.innerHTML = `
                     <span class="text-[13px] text-slate-500 font-bold">${m.substring(2,4)}년 ${parseInt(m.substring(5))}월</span>
                     <span class="text-[15px] font-black text-slate-800">${historyMap[m].toLocaleString()}원</span>
@@ -273,8 +273,8 @@
                 </div>
             </section>
             
-            <div id="dashboardHistory" class="hidden bg-white/90 rounded-[2rem] overflow-hidden border border-white/60 shadow-lg mx-1 transition-all">
-                <div class="bg-slate-100/80 py-3 px-6 text-[10px] font-black text-slate-400 tracking-[0.2em] uppercase border-b border-black/5">Monthly Sales History</div>
+            <div id="dashboardHistory" class="hidden bg-white rounded-[2rem] overflow-hidden border border-white shadow-lg mx-1 transition-all">
+                <div class="bg-slate-50 py-3 px-6 text-[10px] font-black text-slate-400 tracking-[0.2em] uppercase border-b border-black/5">Monthly Sales History</div>
                 <div id="monthlySettleList"></div>
             </div>
         </div>

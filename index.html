@@ -40,19 +40,26 @@
             const currentMonth = new Date().toISOString().substring(0, 7);
 
             Object.values(allRecords).forEach(rec => {
-                // 재고 계산
-                if (!summary[rec.product]) summary[rec.product] = { supply: 0, sales: 0 };
-                summary[rec.product].supply += Number(rec.supplyCount || 0);
-                summary[rec.product].sales += Number(rec.salesCount || 0);
+                const prod = rec.product || "";
+                
+                // 1. 재고 계산 (제품명이 '결제'가 아닌 경우만)
+                if (prod !== "결제" && prod !== "통합결제") {
+                    if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
+                    summary[prod].supply += Number(rec.supplyCount || 0);
+                    summary[prod].sales += Number(rec.salesCount || 0);
+                }
 
-                // 누적 계산 (모든 기간)
-                totalSettle += Number(rec.settleAmount || 0);
-                if (rec.price) totalSales += Number(rec.salesCount || 0);
+                // 2. 누적 금액 계산 (모든 'settleAmount' 합산)
+                const sAmount = Number(rec.settleAmount || 0);
+                const sQty = Number(rec.salesCount || 0);
+                
+                totalSettle += sAmount;
+                totalSales += sQty;
 
-                // 이번 달 계산
+                // 3. 이번 달 계산
                 if (rec.date && rec.date.startsWith(currentMonth)) {
-                    monthlySettle += Number(rec.settleAmount || 0);
-                    if (rec.price) monthlySales += Number(rec.salesCount || 0);
+                    monthlySettle += sAmount;
+                    monthlySales += sQty;
                 }
             });
             
@@ -63,7 +70,7 @@
         function renderTable(summary) {
             const body = document.getElementById('inventoryBody');
             body.innerHTML = '';
-            const defaults = ["인형", "인형 걸이", "키링", "북커버", "파우치"];
+            const defaults = ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미"];
             const products = Array.from(new Set([...defaults, ...Object.keys(summary)]));
             products.forEach(name => {
                 const { supply, sales } = summary[name] || { supply: 0, sales: 0 };
@@ -99,7 +106,7 @@
                     <div class="grid grid-cols-2 gap-2 mt-2">
                         <div><label class="text-[10px] text-gray-400">납품</label><input type="number" value="${rec.supplyCount || 0}" onchange="updateValue('${id}', 'supplyCount', this.value)" class="w-full p-2 bg-white rounded-lg border-none text-sm font-bold text-blue-600"></div>
                         <div><label class="text-[10px] text-gray-400">판매</label><input type="number" value="${rec.salesCount || 0}" onchange="updateValue('${id}', 'salesCount', this.value)" class="w-full p-2 bg-white rounded-lg border-none text-sm font-bold text-red-600"></div>
-                    </div>${rec.price ? `<div class="mt-2 pt-2 border-t border-dashed flex justify-between"><span class="text-[10px] text-gray-400">정산: ${rec.price.toLocaleString()}원 × ${rec.salesCount}개</span><span class="text-[10px] text-green-600 font-bold">${rec.settleAmount.toLocaleString()}원</span></div>` : ''}`;
+                    </div>${rec.settleAmount ? `<div class="mt-2 pt-2 border-t border-dashed flex justify-between"><span class="text-[10px] text-gray-400">합계 수량: ${rec.salesCount}개</span><span class="text-[10px] text-green-600 font-bold">${rec.settleAmount.toLocaleString()}원</span></div>` : ''}`;
                 detailList.appendChild(div);
             });
             detailSection.scrollIntoView({ behavior: 'smooth' });
@@ -119,7 +126,6 @@
             } else {
                 date = document.getElementById('sDate').value;
                 product = document.getElementById('sProd').value === '기타' ? document.getElementById('sEtc').value : document.getElementById('sProd').value;
-                price = Number(document.getElementById('sPrice').value) || 0;
                 settle = Number(document.getElementById('sTotal').value) || 0;
                 sales = Number(document.getElementById('sQty').value) || 0;
             }
@@ -153,9 +159,8 @@
             </div>
         </header>
 
-        <!-- [업데이트] 통합 정산 요약 카드 -->
+        <!-- 정산 요약 카드 -->
         <section class="bg-gray-900 p-6 rounded-3xl shadow-xl text-white space-y-6">
-            <!-- 이번 달 실적 -->
             <div>
                 <div class="flex justify-between items-center mb-2">
                     <h2 class="text-xs font-bold text-orange-400">이번 달 현황 (MONTHLY)</h2>
@@ -163,8 +168,6 @@
                 </div>
                 <p id="mAmount" class="text-3xl font-black tracking-tight">0원</p>
             </div>
-            
-            <!-- 누적 실적 -->
             <div class="pt-4 border-t border-gray-800">
                 <div class="flex justify-between items-center mb-2">
                     <h2 class="text-xs font-bold text-gray-500">누적 총 실적 (TOTAL)</h2>
@@ -199,7 +202,14 @@
         <!-- 수량 입력 -->
         <section id="basicInput" class="hidden bg-white p-6 rounded-3xl shadow-xl space-y-3 border-2 border-gray-800">
             <input type="date" id="bDate" class="w-full p-4 bg-gray-50 rounded-xl border-none">
-            <select id="bProd" onchange="toggleEtc('bProd', 'bEtc')" class="w-full p-4 bg-gray-50 rounded-xl border-none"><option value="인형">인형</option><option value="인형 걸이">인형 걸이</option><option value="키링">키링</option><option value="북커버">북커버</option><option value="파우치">파우치</option><option value="기타">기타 직접입력</option></select>
+            <select id="bProd" onchange="toggleEtc('bProd', 'bEtc')" class="w-full p-4 bg-gray-50 rounded-xl border-none">
+                <option value="고양이 인형">고양이 인형</option>
+                <option value="고양이 키링">고양이 키링</option>
+                <option value="북커버">북커버</option>
+                <option value="양면 파우치">양면 파우치</option>
+                <option value="꽃수세미">꽃수세미</option>
+                <option value="기타">기타 직접입력</option>
+            </select>
             <input type="text" id="bEtc" placeholder="제품명 입력" class="hidden w-full p-4 bg-orange-50 rounded-xl border-none ring-1 ring-orange-200">
             <div class="grid grid-cols-2 gap-2"><input type="number" id="bSupply" placeholder="납품수량" class="p-4 bg-gray-50 rounded-xl border-none text-blue-600 font-bold"><input type="number" id="bSales" placeholder="판매수량" class="p-4 bg-gray-50 rounded-xl border-none text-red-600 font-bold"></div>
             <button onclick="saveData('basic')" class="w-full bg-gray-800 text-white p-4 rounded-xl font-bold">기록 저장</button>
@@ -208,10 +218,17 @@
         <!-- 정산 입력 -->
         <section id="settleInput" class="hidden bg-white p-6 rounded-3xl shadow-xl space-y-3 border-2 border-orange-500">
             <input type="date" id="sDate" class="w-full p-4 bg-gray-50 rounded-xl border-none">
-            <select id="sProd" onchange="toggleEtc('sProd', 'sEtc')" class="w-full p-4 bg-gray-50 rounded-xl border-none"><option value="인형">인형</option><option value="인형 걸이">인형 걸이</option><option value="키링">키링</option><option value="북커버">북커버</option><option value="파우치">파우치</option><option value="기타">기타 직접입력</option></select>
+            <select id="sProd" onchange="toggleEtc('sProd', 'sEtc')" class="w-full p-4 bg-gray-50 rounded-xl border-none">
+                <option value="결제">통합 정산 (묶음)</option>
+                <option value="고양이 인형">고양이 인형</option>
+                <option value="고양이 키링">고양이 키링</option>
+                <option value="북커버">북커버</option>
+                <option value="양면 파우치">양면 파우치</option>
+                <option value="기타">기타 직접입력</option>
+            </select>
             <input type="text" id="sEtc" placeholder="제품명 입력" class="hidden w-full p-4 bg-orange-50 rounded-xl border-none ring-1 ring-orange-200">
-            <div class="grid grid-cols-2 gap-2"><input type="number" id="sPrice" oninput="calcSettle('rate')" placeholder="단가" class="p-4 bg-gray-50 rounded-xl border-none"><input type="number" id="sQty" placeholder="판매갯수" class="p-4 bg-gray-50 rounded-xl border-none font-bold text-orange-500"></div>
-            <div class="grid grid-cols-2 gap-2"><input type="number" id="sRate" oninput="calcSettle('rate')" placeholder="정산 %" class="p-4 bg-blue-50 rounded-xl border-none text-blue-600 font-bold"><input type="number" id="sTotal" oninput="calcSettle('total')" placeholder="정산금액" class="p-4 bg-green-50 rounded-xl border-none text-green-600 font-bold"></div>
+            <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="총 판매수량" class="p-4 bg-gray-50 rounded-xl border-none font-bold text-orange-500"><input type="number" id="sTotal" placeholder="정산금액" class="p-4 bg-green-50 rounded-xl border-none text-green-600 font-bold"></div>
+            <p class="text-[10px] text-gray-400 px-2">* '통합 정산' 선택 시 여러 제품의 합계 수량과 금액만 넣으시면 됩니다.</p>
             <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-4 rounded-xl font-bold">정산 데이터 저장</button>
         </section>
     </div>

@@ -63,21 +63,21 @@
                 const sQty = Number(rec.salesCount || 0);
                 const iQty = Number(rec.supplyCount || 0);
 
-                // 전체 누적 데이터 (결제 포함)
+                // 1. 모든 데이터(결제 포함)를 총 판매액에 무조건 합산
                 totalSettle += sAmount;
                 totalSales += sQty;
 
-                // 월간 실적 계산
+                // 2. 월간 데이터 필터링
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     monthlySettle += sAmount;
                     monthlySales += sQty;
-                    // 차트에서는 '결제' 항목 제외
+                    // 차트에서는 '결제' 제외
                     if (sQty > 0 && prod !== "결제") {
                         monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
                     }
                 }
 
-                // ⭐ 재고 목록에서 '결제' 항목 제외 로직
+                // 3. 재고 목록(summary)에서만 '결제' 제외
                 if (prod === "결제") return; 
 
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
@@ -94,6 +94,7 @@
         function renderStats(mSettle, mSales, tSettle, tSales) {
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
             document.getElementById('mCount').innerText = mSales + '개';
+            // 총 판매액 색상: 그린(Emerald) 계열로 변경
             document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
             document.getElementById('tCount').innerText = tSales + '개';
         }
@@ -250,8 +251,8 @@
                 <p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p>
             </div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
-                <div><p class="text-[10px] font-bold opacity-70">총 판매액</p><p id="tAmount" class="text-lg font-black text-[#ffeaa7]">0원</p></div>
-                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div>
+                <div><p class="text-[10px] font-bold opacity-70">총 판매액</p><p id="tAmount" class="text-lg font-black text-[#55efc4]">0원</p></div>
+                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수</p><p id="tCount" class="text-lg font-black text-[#55efc4]">0개</p></div>
             </div>
             <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
         </section>

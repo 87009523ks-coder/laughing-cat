@@ -26,7 +26,7 @@
         let allRecords = {};
         let productOrder = [];
         let mainChart = null;
-        let editingId = null; // 수정 중인 항목의 ID 저장
+        let editingId = null;
 
         const colorPalette = ['#FFD93D', '#FF8B13', '#FF6B6B', '#4D96FF', '#6BCB77', '#9D72FF'];
         const productColors = {};
@@ -134,6 +134,16 @@
             });
         }
 
+        window.toggleDirectInput = (val) => {
+            const input = document.getElementById('bProdDirect');
+            if (val === '직접입력') {
+                input.classList.remove('hidden');
+                input.focus();
+            } else {
+                input.classList.add('hidden');
+            }
+        };
+
         window.startEdit = (id, rec) => {
             editingId = id;
             if (rec.product === "결제") {
@@ -147,7 +157,17 @@
                 document.getElementById('basicInput').classList.remove('hidden');
                 document.getElementById('settleInput').classList.add('hidden');
                 document.getElementById('bDate').value = rec.date;
-                document.getElementById('bProd').value = rec.product;
+                
+                const select = document.getElementById('bProd');
+                const options = Array.from(select.options).map(o => o.value);
+                if (options.includes(rec.product)) {
+                    select.value = rec.product;
+                    document.getElementById('bProdDirect').classList.add('hidden');
+                } else {
+                    select.value = '직접입력';
+                    document.getElementById('bProdDirect').classList.remove('hidden');
+                    document.getElementById('bProdDirect').value = rec.product;
+                }
                 document.getElementById('bSupply').value = rec.supplyCount;
                 document.getElementById('bSales').value = rec.salesCount;
                 document.getElementById('basicInput').scrollIntoView({ behavior: 'smooth' });
@@ -173,20 +193,22 @@
             let data = { timestamp: serverTimestamp() };
             const prefix = type === 'basic' ? 'b' : 's';
             data.date = document.getElementById(`${prefix}Date`).value;
-            data.product = document.getElementById(`${prefix}Prod`).value;
+            
             if (type === 'basic') {
+                const selectVal = document.getElementById('bProd').value;
+                data.product = selectVal === '직접입력' ? document.getElementById('bProdDirect').value : selectVal;
                 data.supplyCount = Number(document.getElementById('bSupply').value) || 0;
                 data.salesCount = Number(document.getElementById('bSales').value) || 0;
             } else {
+                data.product = "결제";
                 data.settleAmount = Number(document.getElementById('sTotal').value) || 0;
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
-            if (!data.product || !data.date) return alert("데이터 확인!");
+            if (!data.product || !data.date) return alert("날짜와 품목을 확인하세요!");
             
             if (editingId) {
                 update(ref(db, `records/${editingId}`), data).then(() => {
                     editingId = null;
-                    alert("수정 완료!");
                     closeInputs();
                 });
             } else {
@@ -197,6 +219,8 @@
         function closeInputs() {
             document.getElementById('basicInput').classList.add('hidden');
             document.getElementById('settleInput').classList.add('hidden');
+            document.getElementById('bProdDirect').classList.add('hidden');
+            document.getElementById('bProdDirect').value = '';
             document.getElementById('bSupply').value = '';
             document.getElementById('bSales').value = '';
             document.getElementById('sQty').value = '';
@@ -255,16 +279,24 @@
         </section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
-            <button onclick="editingId=null; document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
-            <button onclick="editingId=null; document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
+            <button onclick="editingId=null; closeInputs(); document.getElementById('basicInput').classList.remove('hidden');" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
+            <button onclick="editingId=null; closeInputs(); document.getElementById('settleInput').classList.remove('hidden');" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
         </div>
 
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-slate-900">
             <h2 class="font-black text-lg">📦 데이터 입력/수정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-            <select id="bProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-                <option value="">제품 선택</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
+            <select id="bProd" onchange="toggleDirectInput(this.value)" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
+                <option value="">제품 선택</option>
+                <option value="고양이 인형">고양이 인형</option>
+                <option value="고양이 키링">고양이 키링</option>
+                <option value="북커버">북커버</option>
+                <option value="양면 파우치">양면 파우치</option>
+                <option value="꽃수세미">꽃수세미</option>
+                <option value="크로스백">크로스백</option>
+                <option value="직접입력">[직접입력]</option>
             </select>
+            <input type="text" id="bProdDirect" placeholder="제품명을 직접 입력하세요" class="hidden w-full p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl font-bold">
             <div class="grid grid-cols-2 gap-3"><input type="number" id="bSupply" placeholder="납품(+)" class="p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center"><input type="number" id="bSales" placeholder="판매(-)" class="p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center"></div>
             <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">저장/수정하기</button>
         </section>

@@ -45,18 +45,19 @@
         }
 
         function processData() {
-            const summary = {};
+            const summary = {}; // 전체 재고용
+            const monthlySummary = {}; // 선택된 달 전용 재고 계산용
             let mSettle = 0; let mSales = 0;
             let tSettle = 0; let tSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
             const monthlyChartData = {};
 
-            // 1차 순회: 전체 요약 계산 (재고 계산용)
             Object.values(allRecords).forEach(rec => {
                 let prod = rec.product || "미분류";
                 if (prod.includes("고양이 인형")) prod = "고양이 인형";
                 if (prod === "결제") return;
 
+                // 1. 전체 요약 (메인 테이블용)
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
@@ -64,18 +65,17 @@
                 const sAmount = Number(rec.settleAmount || 0);
                 tSettle += sAmount;
                 tSales += Number(rec.salesCount || 0);
+
+                // 2. 월별 데이터 필터링
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     mSettle += sAmount;
                     mSales += Number(rec.salesCount || 0);
-                }
-            });
+                    
+                    if (!monthlySummary[prod]) monthlySummary[prod] = { supply: 0, sales: 0 };
+                    monthlySummary[prod].supply += Number(rec.supplyCount || 0);
+                    monthlySummary[prod].sales += Number(rec.salesCount || 0);
 
-            // 필터링된 달의 차트 데이터 추출
-            Object.values(allRecords).forEach(rec => {
-                if (rec.date && rec.date.startsWith(filterMonth)) {
-                    let prod = rec.product || "미분류";
-                    if (prod.includes("고양이 인형")) prod = "고양이 인형";
-                    if (prod !== "결제" && Number(rec.salesCount) > 0) {
+                    if (Number(rec.salesCount) > 0) {
                         monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
                     }
                 }
@@ -83,7 +83,7 @@
 
             renderStats(mSettle, mSales, tSettle, tSales);
             renderTable(summary);
-            renderHistory(filterMonth, summary); // 재고 정보 전달
+            renderHistory(filterMonth, monthlySummary); // '그 달의 요약' 데이터 전달
             updateChart(monthlyChartData);
         }
 
@@ -115,11 +115,9 @@
             }});
         }
 
-        function renderHistory(filterMonth, summary) {
+        function renderHistory(filterMonth, monthlySummary) {
             const histBody = document.getElementById('historyList');
             const histTitle = document.getElementById('historyTitle');
-            
-            // 제목 업데이트 (예: 2026년 03월 상세 내역)
             const [year, month] = filterMonth.split('-');
             histTitle.innerText = `📅 ${year}년 ${month}월 상세 내역`;
 
@@ -130,20 +128,31 @@
 
             sortedRecords.forEach(([id, rec]) => {
                 const div = document.createElement('div');
-                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-xs active:bg-slate-200 transition-colors cursor-pointer";
+                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-[11px] active:bg-slate-200 transition-colors cursor-pointer";
                 div.onclick = (e) => { if(e.target.tagName !== 'BUTTON') prepareEdit(id, rec); };
                 
                 let prodName = rec.product;
                 if (prodName.includes("고양이 인형")) prodName = "고양이 인형";
                 
-                const currentStock = summary[prodName] ? (summary[prodName].supply - summary[prodName].sales) : '-';
+                // 해당 월의 재고 계산 (해당 월 납품 - 해당 월 판매)
+                const mStock = monthlySummary[prodName] ? (monthlySummary[prodName].supply - monthlySummary[prodName].sales) : 0;
                 const isSettle = Number(rec.settleAmount) > 0;
                 
-                const info = isSettle 
-                    ? `<span class="text-orange-600 font-bold">[정산] ${rec.settleAmount.toLocaleString()}원 (${rec.salesCount}개 / 재고:${currentStock})</span>` 
-                    : `<span class="text-blue-600 font-bold">[수량] 납품:${rec.supplyCount}/판매:${rec.salesCount} (재고:${currentStock})</span>`;
+                // 정보 텍스트 및 색상 적용
+                const detailInfo = isSettle 
+                    ? `<span class="text-orange-600">[정산]</span> <span class="font-bold">${rec.settleAmount.toLocaleString()}원</span>`
+                    : `<span class="text-blue-500 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
 
-                div.innerHTML = `<div class="flex flex-col"><span class="text-[10px] text-gray-400">${rec.date}</span><span class="font-bold text-slate-700">${rec.product} | ${info}</span></div><button onclick="deleteRecord('${id}', '${rec.product}')" class="p-2 text-red-300">🗑️</button>`;
+                div.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span>
+                        <div class="leading-tight">
+                            <span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo} 
+                            <span class="ml-1 text-slate-900 font-black">(월재고:${mStock})</span>
+                        </div>
+                    </div>
+                    <button onclick="deleteRecord('${id}', '${rec.product}')" class="p-2 text-red-300">🗑️</button>
+                `;
                 histBody.appendChild(div);
             });
         }
@@ -167,11 +176,10 @@
             }
             window.editingId = id;
             window.scrollTo({ top: 500, behavior: 'smooth' });
-            alert("입력창에 내용을 채웠습니다. 수정한 뒤 저장하세요.");
         };
 
         window.deleteRecord = (id, prod) => {
-            if (confirm("이 기록을 삭제하시겠습니까?")) remove(ref(db, `records/${id}`));
+            if (confirm("기록을 삭제할까요?")) remove(ref(db, `records/${id}`));
         };
 
         function updateChart(chartData) {
@@ -198,15 +206,11 @@
                 data.settleAmount = Number(document.getElementById('sTotal').value) || 0;
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
-            if (!data.product) return alert("품목을 선택하세요!");
+            if (!data.product) return alert("품목 선택!");
 
-            if (window.editingId) {
-                remove(ref(db, `records/${window.editingId}`));
-                window.editingId = null;
-            }
+            if (window.editingId) { remove(ref(db, `records/${window.editingId}`)); window.editingId = null; }
 
             push(ref(db, 'records'), data).then(() => { 
-                alert("저장되었습니다!");
                 document.getElementById('basicInput').classList.add('hidden');
                 document.getElementById('settleInput').classList.add('hidden');
             });
@@ -221,7 +225,6 @@
 
         window.onload = init;
     </script>
-    <style> .orange-grad { background: linear-gradient(135deg, #ff8c42 0%, #ff5e3a 100%); } </style>
 </head>
 <body class="bg-slate-50 p-4 pb-40 font-sans tracking-tight text-slate-900">
     <div class="max-w-md mx-auto space-y-5">
@@ -230,7 +233,8 @@
             <input type="month" id="monthFilter" class="bg-white border-none rounded-2xl px-4 py-2 text-xs font-black shadow-sm">
         </header>
 
-        <section class="orange-grad rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
+        <!-- 정산 카드 섹션 -->
+        <section class="bg-gradient-to-br from-orange-400 to-red-500 rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
             <div class="relative z-10"><p class="text-[10px] font-black opacity-80 uppercase mb-1">이번 달 정산액</p><p id="mAmount" class="text-5xl font-black mb-1">0원</p><p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p></div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
                 <div><p class="text-[10px] font-bold opacity-70">총 판매액</p><p id="tAmount" class="text-lg font-black"></p></div>
@@ -239,20 +243,24 @@
             <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
         </section>
 
+        <!-- 품목별 재고 테이블 -->
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
             <table class="w-full text-center"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400"><tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-orange-500">판매</th><th>재고</th><th></th></tr></thead><tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody></table>
         </section>
 
+        <!-- 상세 내역 (색상 강화 버전) -->
         <section class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <h3 id="historyTitle" class="font-black text-sm mb-4 text-slate-400 uppercase tracking-widest">📅 이달의 상세 내역</h3>
+            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 uppercase tracking-widest">📅 이달의 상세 내역</h3>
             <div id="historyList" class="max-h-80 overflow-y-auto pr-2"></div>
         </section>
 
+        <!-- 하단 플로팅 버튼 -->
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
             <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl">📦 수량 기록</button>
             <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-[2rem] font-black shadow-2xl">💰 정산 기록</button>
         </div>
 
+        <!-- 입력창 섹션 생략 (기존과 동일하되 로직만 연동) -->
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
             <h2 class="font-black text-lg">📦 수량 입력/수정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">

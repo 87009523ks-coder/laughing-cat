@@ -37,8 +37,6 @@
             
             const monthFilter = document.getElementById('monthFilter');
             monthFilter.value = now.toISOString().substring(0, 7);
-            
-            // 필터 변경 시 데이터 재계산 이벤트 연결
             monthFilter.addEventListener('change', processData);
 
             onValue(ref(db, 'records'), (snapshot) => {
@@ -65,16 +63,13 @@
                 const sQty = Number(rec.salesCount || 0);
                 const iQty = Number(rec.supplyCount || 0);
 
-                // 1. 전체 누적 데이터 (날짜 무관)
                 totalSettle += sAmount;
                 totalSales += sQty;
 
-                // 2. 재고 계산용 요약 (품목별)
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                 summary[prod].supply += iQty;
                 summary[prod].sales += sQty;
 
-                // 3. 월간 실적 (선택된 달과 일치할 때만)
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     monthlySettle += sAmount;
                     monthlySales += sQty;
@@ -91,10 +86,9 @@
         }
 
         function renderStats(mSettle, mSales, tSettle, tSales) {
-            // 이달의 수익 및 판매량 (주황색 카드)
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
             document.getElementById('mCount').innerText = mSales + '개';
-            // 누적 데이터 (카드 하단)
+            // 총 판매액 (색상 노란색 계열로 강조)
             document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
             document.getElementById('tCount').innerText = tSales + '개';
         }
@@ -246,25 +240,25 @@
 
         <section class="orange-grad rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
             <div class="relative z-10">
-                <p class="text-[10px] font-black opacity-80 uppercase tracking-widest mb-1">Monthly Profit</p>
+                <p class="text-[10px] font-black opacity-80 uppercase tracking-widest mb-1">이번 달 정산액</p>
                 <p id="mAmount" class="text-5xl font-black mb-1">0원</p>
                 <p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p>
             </div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
-                <div><p class="text-[10px] font-bold opacity-70">누적 정산액</p><p id="tAmount" class="text-lg font-black">0원</p></div>
-                <div class="text-right"><p class="text-[10px] font-bold opacity-70">누적 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div>
+                <div><p class="text-[10px] font-bold opacity-70">총 판매액</p><p id="tAmount" class="text-lg font-black text-[#ffeaa7]">0원</p></div>
+                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div>
             </div>
             <div class="absolute -right-4 top-6 w-32 h-32"><canvas id="salesChart"></canvas></div>
         </section>
 
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
             <table class="w-full">
-                <thead class="bg-slate-50/50"><tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th class="p-4 w-10"></th><th class="p-4 text-left">ITEM</th><th class="p-4">IN</th><th class="p-4 text-orange-500">OUT</th><th class="p-4">STOCK</th><th class="p-4 w-10"></th></tr></thead>
+                <thead class="bg-slate-50/50"><tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th class="p-4 w-10"></th><th class="p-4 text-left">품목</th><th class="p-4">납품</th><th class="p-4 text-orange-500">판매</th><th class="p-4">재고</th><th class="p-4 w-10"></th></tr></thead>
                 <tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody>
             </table>
         </section>
 
-        <section id="detailSection" class="hidden bg-white p-6 rounded-[2.5rem] border border-slate-200"><div class="flex justify-between items-center mb-4"><h3 id="detailTitle" class="font-black text-slate-700"></h3><button onclick="document.getElementById('detailSection').classList.add('hidden')" class="text-slate-400 font-bold">CLOSE</button></div><div id="detailList" class="space-y-2"></div></section>
+        <section id="detailSection" class="hidden bg-white p-6 rounded-[2.5rem] border border-slate-200"><div class="flex justify-between items-center mb-4"><h3 id="detailTitle" class="font-black text-slate-700"></h3><button onclick="document.getElementById('detailSection').classList.add('hidden')" class="text-slate-400 font-bold">닫기</button></div><div id="detailList" class="space-y-2"></div></section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
             <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl flex items-center justify-center gap-2">📦 수량 기록</button>
@@ -275,24 +269,24 @@
             <h2 class="font-black text-lg">재고 직접 조정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" onchange="toggleEtc('bProd', 'bEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></select>
-            <input type="text" id="bEtc" placeholder="제품명 입력" class="hidden w-full p-4 bg-orange-50 rounded-2xl border-none font-bold ring-2 ring-orange-100">
+            <input type="text" id="bEtc" placeholder="제품명 직접 입력" class="hidden w-full p-4 bg-orange-50 rounded-2xl border-none font-bold ring-2 ring-orange-100">
             <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400 ml-2 uppercase">Supply (+)</label><input type="number" id="bSupply" class="w-full p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center text-xl"></div>
-                <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400 ml-2 uppercase">Sales (-)</label><input type="number" id="bSales" class="w-full p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center text-xl"></div>
+                <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400 ml-2 uppercase">납품 (+)</label><input type="number" id="bSupply" class="w-full p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center text-xl"></div>
+                <div class="space-y-1"><label class="text-[10px] font-bold text-slate-400 ml-2 uppercase">판매 (-)</label><input type="number" id="bSales" class="w-full p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center text-xl"></div>
             </div>
-            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black text-lg">데이터 업데이트</button>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black text-lg">기록하기</button>
         </section>
 
         <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-orange-500 space-y-4">
             <h2 class="font-black text-lg text-orange-600">정산 및 재고 연동</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="sProd" onchange="toggleEtc('sProd', 'sEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></select>
-            <input type="text" id="sEtc" placeholder="제품명 입력" class="hidden w-full p-4 bg-orange-50 rounded-2xl border-none font-bold ring-2 ring-orange-100">
+            <input type="text" id="sEtc" placeholder="제품명 직접 입력" class="hidden w-full p-4 bg-orange-50 rounded-2xl border-none font-bold ring-2 ring-orange-100">
             <div class="p-6 bg-orange-50 rounded-[2.5rem] space-y-4">
                 <div class="grid grid-cols-2 gap-3"><input type="number" id="sPrice" placeholder="소비자가" oninput="calcSettle('rate')" class="p-4 bg-white rounded-2xl border-none text-sm font-bold shadow-sm"><input type="number" id="sRate" placeholder="정산율(%)" oninput="calcSettle('rate')" class="p-4 bg-white rounded-2xl border-none text-sm font-bold text-orange-500 shadow-sm"></div>
                 <div class="grid grid-cols-2 gap-3"><input type="number" id="sQty" placeholder="수량" oninput="calcSettle('rate')" class="p-4 bg-white rounded-2xl border-none font-black text-orange-600 shadow-sm text-center"><input type="number" id="sTotal" placeholder="정산금" oninput="calcSettle('total')" class="p-4 bg-white rounded-2xl border-none font-black text-green-600 shadow-sm text-center"></div>
             </div>
-            <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-2xl font-black text-lg shadow-lg">정산 기록 및 재고 차감</button>
+            <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-2xl font-black text-lg shadow-lg">정산 완료</button>
         </section>
     </div>
 </body>

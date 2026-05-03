@@ -27,9 +27,10 @@
         let productOrder = [];
         let mainChart = null;
 
-        // 품목별 고정 컬러맵 (그래프와 표를 일치시키기 위함)
+        // 품목별 고정 컬러 및 투명도 맵
         const colorPalette = ['#FFD93D', '#FF8B13', '#FF6B6B', '#4D96FF', '#6BCB77', '#9D72FF'];
         const productColors = {};
+        const productBgColors = {}; // 카드 배경용 반투명 색상
 
         function init() {
             const now = new Date();
@@ -44,7 +45,10 @@
             });
             onValue(ref(db, 'settings/order'), (snapshot) => {
                 productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
-                productOrder.forEach((name, i) => { productColors[name] = colorPalette[i % colorPalette.length]; });
+                productOrder.forEach((name, i) => { 
+                    productColors[name] = colorPalette[i % colorPalette.length];
+                    productBgColors[name] = colorPalette[i % colorPalette.length] + '1A'; // 10% 투명도
+                });
                 processData();
             });
         }
@@ -108,15 +112,14 @@
             displayList.forEach(name => {
                 const { supply, sales } = summary[name];
                 const stock = supply - sales;
-                const dotColor = productColors[name] || '#ccc';
+                const rowBg = productBgColors[name] || '#ffffff';
                 const tr = document.createElement('tr');
-                tr.className = "border-b text-sm bg-white hover:bg-slate-50 transition-colors";
+                // 행 전체에 투명한 색 배경 적용
+                tr.style.backgroundColor = rowBg;
+                tr.className = "border-b text-sm transition-colors";
                 tr.innerHTML = `
-                    <td class="p-4 text-left flex items-center gap-3">
-                        <div class="w-2 h-2 rounded-full" style="background-color: ${dotColor}"></div>
-                        <span class="font-bold text-slate-700">${name}</span>
-                    </td>
-                    <td class="p-4 text-center text-blue-500 font-bold">${supply}</td>
+                    <td class="p-4 text-left font-black text-slate-800">${name}</td>
+                    <td class="p-4 text-center text-blue-600 font-bold">${supply}</td>
                     <td class="p-4 text-center text-red-500 font-bold">${sales}</td>
                     <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>
                 `;
@@ -137,8 +140,8 @@
                 const div = document.createElement('div');
                 div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-[11px]";
                 const detailInfo = Number(rec.settleAmount) > 0 
-                    ? `<span class="text-amber-600 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
-                    : `<span class="text-blue-500 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
+                    ? `<span class="text-amber-700 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
+                    : `<span class="text-blue-600 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
 
                 div.innerHTML = `
                     <div class="flex flex-col">
@@ -166,8 +169,7 @@
                     datasets: [{ 
                         data: data, 
                         backgroundColor: colors, 
-                        borderColor: '#ffffff',
-                        borderWidth: 3
+                        borderWidth: 0 // 하얀색 테두리 삭제
                     }] 
                 },
                 options: { 
@@ -222,7 +224,6 @@
             </div>
         </header>
 
-        <!-- 대시보드 배경색 변경: 연한 오렌지 계열 -->
         <section class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white space-y-8 relative overflow-hidden">
             <div class="relative z-10">
                 <p id="settleTitle" class="text-[10px] font-black opacity-80 uppercase mb-1">정산액</p>
@@ -230,19 +231,19 @@
                 <p class="text-xs font-bold opacity-90"><span id="salesTitle">판매량</span>: <span id="mCount">0개</span></p>
             </div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10">
-                <div><p class="text-[10px] font-bold opacity-70">총 판매액 (전체)</p><p id="tAmount" class="text-lg font-black"></p></div>
-                <div class="text-right"><p class="text-[10px] font-bold opacity-70">총 판매수 (전체)</p><p id="tCount" class="text-lg font-black"></p></div>
+                <!-- 총판매액 및 총판매수 색상 강조 -->
+                <div><p class="text-[10px] font-bold opacity-80">총 판매액 (전체)</p><p id="tAmount" class="text-xl font-black text-slate-900"></p></div>
+                <div class="text-right"><p class="text-[10px] font-bold opacity-80">총 판매수 (전체)</p><p id="tCount" class="text-xl font-black text-slate-900"></p></div>
             </div>
-            <div class="absolute -right-2 top-4 w-36 h-36 opacity-90"><canvas id="salesChart"></canvas></div>
+            <div class="absolute -right-2 top-4 w-36 h-36 opacity-100"><canvas id="salesChart"></canvas></div>
         </section>
 
-        <!-- 품목 리스트: 컬러 점 추가 -->
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
             <table class="w-full text-center">
                 <thead class="bg-slate-50/50 text-[10px] font-black text-slate-400">
                     <tr><th class="p-4 text-left">품목</th><th>납품</th><th class="text-amber-600">판매</th><th>재고</th></tr>
                 </thead>
-                <tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody>
+                <tbody id="inventoryBody" class="divide-y divide-slate-100"></tbody>
             </table>
         </section>
 

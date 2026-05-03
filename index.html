@@ -73,7 +73,7 @@
             });
 
             renderStats(mSettle, mSales, tSettle, tSales);
-            renderTable(summary);
+            renderCards(summary);
             renderHistory(filterMonth);
             updateChart(monthlyChartData);
         }
@@ -85,9 +85,9 @@
             document.getElementById('tCount').innerText = tSales + '개';
         }
 
-        function renderTable(summary) {
-            const body = document.getElementById('inventoryBody');
-            body.innerHTML = '';
+        function renderCards(summary) {
+            const container = document.getElementById('cardContainer');
+            container.innerHTML = '';
             let displayList = productOrder.filter(p => summary[p] || productOrder.includes(p));
             
             displayList.forEach(name => {
@@ -95,38 +95,40 @@
                 const stock = data.supply - data.sales;
                 const dotColor = productColors[name] || '#ccc';
                 
-                const tr = document.createElement('tr');
-                tr.setAttribute('data-id', name);
-                tr.className = "border-b text-sm transition-all active:bg-slate-50 cursor-pointer";
-                tr.innerHTML = `
-                    <td class="p-4 text-gray-400 handle">≡</td>
-                    <td class="p-4 text-left flex items-center gap-2 font-black text-slate-800" onclick="toggleDetail('${name}')">
-                        <div class="w-2.5 h-2.5 rounded-full" style="background-color: ${dotColor}"></div>${name}
-                    </td>
-                    <td class="p-4 text-center text-blue-600 font-bold">${data.supply}</td>
-                    <td class="p-4 text-center text-red-500 font-bold">${data.sales}</td>
-                    <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>
-                `;
-
-                const detailTr = document.createElement('tr');
-                detailTr.id = `detail-${name.replace(/\s+/g, '')}`;
-                detailTr.className = "hidden bg-slate-50";
+                const card = document.createElement('div');
+                card.setAttribute('data-id', name);
+                card.className = "bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100 mb-4 transition-all active:scale-[0.98]";
+                
                 const detailContent = data.details.length > 0 
                     ? data.details.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d => 
-                        `<div class="flex justify-between py-1 border-b border-white text-[10px] px-4 font-bold">
-                            <span class="text-gray-400">${d.date}</span>
-                            <span>납품:${d.supplyCount} / 판매:${d.salesCount}</span>
+                        `<div class="flex justify-between py-2 border-b border-slate-50 text-[10px] font-bold">
+                            <span class="text-slate-400">${d.date}</span>
+                            <span class="text-slate-600">납품:${d.supplyCount} / 판매:${d.salesCount}</span>
                          </div>`).join('')
-                    : `<div class="text-center py-2 text-gray-400 text-[10px]">기록 없음</div>`;
-                
-                detailTr.innerHTML = `<td colspan="5" class="p-0"><div class="overflow-hidden transition-all">${detailContent}</div></td>`;
+                    : `<div class="text-center py-4 text-slate-300 text-[10px]">이번 달 기록이 없습니다.</div>`;
 
-                body.appendChild(tr);
-                body.appendChild(detailTr);
+                card.innerHTML = `
+                    <div class="flex justify-between items-center cursor-pointer" onclick="toggleDetail('${name}')">
+                        <div class="flex items-center gap-3">
+                            <div class="handle text-slate-300 font-bold">≡</div>
+                            <div class="w-3 h-3 rounded-full" style="background-color: ${dotColor}"></div>
+                            <span class="font-black text-slate-800 text-base">${name}</span>
+                        </div>
+                        <div class="flex gap-4 text-xs font-black">
+                            <div class="text-center"><p class="text-[8px] text-slate-300 uppercase">납품</p><p class="text-blue-500">${data.supply}</p></div>
+                            <div class="text-center"><p class="text-[8px] text-slate-300 uppercase">판매</p><p class="text-red-500">${data.sales}</p></div>
+                            <div class="text-center"><p class="text-[8px] text-slate-300 uppercase">재고</p><p class="${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</p></div>
+                        </div>
+                    </div>
+                    <div id="detail-${name.replace(/\s+/g, '')}" class="hidden mt-4 pt-4 border-t border-slate-50">
+                        ${detailContent}
+                    </div>
+                `;
+                container.appendChild(card);
             });
             
-            new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
-                const newOrder = Array.from(body.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
+            new Sortable(container, { handle: '.handle', animation: 150, onEnd: () => {
+                const newOrder = Array.from(container.querySelectorAll('div[data-id]')).map(div => div.getAttribute('data-id'));
                 set(ref(db, 'settings/order'), newOrder);
             }});
         }
@@ -145,12 +147,12 @@
 
             sortedRecords.forEach(([id, rec]) => {
                 const div = document.createElement('div');
-                div.className = "flex justify-between items-center p-4 bg-white rounded-2xl mb-2 text-[11px] shadow-sm cursor-pointer active:bg-slate-100";
+                div.className = "flex justify-between items-center p-4 bg-white rounded-2xl mb-2 text-[11px] shadow-sm cursor-pointer active:bg-slate-100 border border-slate-50";
                 div.onclick = () => startEdit(id, rec);
                 const detailInfo = Number(rec.settleAmount) > 0 
-                    ? `<span class="text-amber-700 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
-                    : `<span class="text-blue-600 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
-                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-red-200 hover:text-red-500">🗑️</button>`;
+                    ? `<span class="text-amber-600 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
+                    : `<span class="text-blue-500 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-400 font-bold">판매:${rec.salesCount}</span>`;
+                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-slate-300 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-slate-200">🗑️</button>`;
                 histBody.appendChild(div);
             });
         }
@@ -201,7 +203,7 @@
                 data.settleAmount = Number(document.getElementById('sTotal').value) || 0;
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
-            if (!data.product || !data.date) return alert("항목을 채워주세요!");
+            if (!data.product || !data.date) return alert("필수 정보를 입력하세요!");
             const action = editingId ? update(ref(db, `records/${editingId}`), data) : push(ref(db, 'records'), data);
             action.then(() => { closeInputs(); });
         };
@@ -249,17 +251,11 @@
             <div class="absolute -right-4 -top-4 w-36 h-36 opacity-30"><canvas id="salesChart"></canvas></div>
         </section>
 
-        <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
-            <table class="w-full">
-                <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
-                    <tr><th class="p-4 w-8"></th><th class="text-left">품목 (클릭 시 상세)</th><th>납품</th><th>판매</th><th>재고</th></tr>
-                </thead>
-                <tbody id="inventoryBody"></tbody>
-            </table>
-        </section>
+        <!-- 품목 카드 컨테이너 -->
+        <div id="cardContainer"></div>
 
-        <section class="bg-slate-100/50 p-6 rounded-[2.5rem] border border-slate-200">
-            <h3 class="font-black text-[12px] mb-4 text-slate-400 tracking-widest uppercase text-center">최근 내역 (수정 시 클릭)</h3>
+        <section class="bg-slate-100/50 p-6 rounded-[2.5rem]">
+            <h3 class="font-black text-[10px] mb-4 text-slate-400 tracking-widest uppercase text-center">최근 내역 (수정 시 클릭)</h3>
             <div id="historyList"></div>
         </section>
 
@@ -268,8 +264,9 @@
             <button onclick="openInput('settle')" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-all">💰 정산 기록</button>
         </div>
 
+        <!-- 입력창 섹션 -->
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-slate-900">
-            <div class="flex justify-between"><h2 class="font-black text-lg">📦 수량 기록/수정</h2><button onclick="closeInputs()">닫기</button></div>
+            <div class="flex justify-between items-center"><h2 class="font-black text-lg">📦 수량 기록/수정</h2><button onclick="closeInputs()" class="text-slate-300">닫기</button></div>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" onchange="this.value==='직접입력'?document.getElementById('bProdDirect').classList.remove('hidden'):document.getElementById('bProdDirect').classList.add('hidden')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
                 <option value="">제품 선택</option>
@@ -284,7 +281,7 @@
         </section>
 
         <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-amber-500">
-            <div class="flex justify-between"><h2 class="font-black text-lg text-amber-600">💰 정산 기록/수정</h2><button onclick="closeInputs()">닫기</button></div>
+            <div class="flex justify-between items-center"><h2 class="font-black text-lg text-amber-600">💰 정산 기록/수정</h2><button onclick="closeInputs()" class="text-slate-300">닫기</button></div>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <div class="grid grid-cols-2 gap-3">
                 <div><p class="text-[10px] font-bold text-slate-400 mb-1">판매 수량</p><input type="number" id="sQty" class="w-full p-4 bg-slate-50 rounded-2xl font-bold"></div>

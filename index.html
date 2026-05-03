@@ -26,6 +26,7 @@
         let allRecords = {};
         let productOrder = [];
         let mainChart = null;
+        let editingId = null;
 
         const colorPalette = [
             { main: '#FFD93D', bg: 'rgba(255, 217, 61, 0.1)' },
@@ -57,6 +58,12 @@
             });
         }
 
+        function formatDate(dateStr) {
+            if(!dateStr) return "";
+            const parts = dateStr.split('-');
+            return `${parts[0].substring(2)}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일`;
+        }
+
         function processData() {
             const summary = {}; let mSettle = 0; let mSales = 0; let tSettle = 0; let tSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
@@ -74,6 +81,7 @@
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0, allDetails: [] };
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
+                summary[prod].allDetails.push({ ...rec, id: id });
                 tSales += Number(rec.salesCount || 0);
                 if (rec.date?.startsWith(filterMonth)) {
                     mSales += Number(rec.salesCount || 0);
@@ -87,6 +95,7 @@
             document.getElementById('tCount').innerText = tSales + '개';
             
             renderCards(summary);
+            renderHistory(filterMonth);
             updateChart(monthlyChartData);
         }
 
@@ -95,29 +104,104 @@
             container.innerHTML = '';
             
             productOrder.forEach(name => {
-                const data = summary[name] || { supply: 0, sales: 0 };
+                const data = summary[name] || { supply: 0, sales: 0, allDetails: [] };
                 const theme = productTheme[name] || { main: '#ccc', bg: 'rgba(200,200,200,0.1)' };
                 
                 const card = document.createElement('div');
-                card.style.backgroundColor = theme.bg;
-                card.className = "backdrop-blur-sm rounded-[1.8rem] p-5 shadow-sm border border-white/40 mb-3 transition-all flex justify-between items-center";
+                card.className = "mb-3";
                 
+                const detailContent = data.allDetails.length > 0 
+                    ? data.allDetails.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d => 
+                        `<div onclick="startEdit('${d.id}', ${JSON.stringify(d).replace(/"/g, '&quot;')})" 
+                              class="grid grid-cols-12 items-center py-4 border-b border-black/5 last:border-0 px-4 active:bg-black/5 transition-colors cursor-pointer">
+                            <span class="col-span-4 text-[12px] text-slate-400 font-bold">${formatDate(d.date)}</span>
+                            <div class="col-span-8 flex justify-end gap-4 text-[13px] font-black">
+                                <span class="text-blue-500">납품 ${d.supplyCount}</span>
+                                <span class="text-red-500">판매 ${d.salesCount}</span>
+                            </div>
+                         </div>`).join('')
+                    : `<div class="text-center py-6 text-slate-400 text-xs font-bold">기록이 없습니다.</div>`;
+
                 card.innerHTML = `
-                    <div class="flex items-center gap-3 w-1/3">
-                        <div class="w-3 h-3 rounded-full shrink-0" style="background-color: ${theme.main}"></div>
-                        <span class="font-black text-slate-800 text-[15px] tracking-tight truncate">${name}</span>
+                    <div onclick="toggleDetail('${name.replace(/\s+/g, '')}')" style="background-color: ${theme.bg}" 
+                         class="backdrop-blur-sm rounded-[1.8rem] p-5 shadow-sm border border-white/40 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all">
+                        <div class="flex items-center gap-3 w-1/3">
+                            <div class="w-3 h-3 rounded-full shrink-0" style="background-color: ${theme.main}"></div>
+                            <span class="font-black text-slate-800 text-[15px] tracking-tight truncate">${name}</span>
+                        </div>
+                        <div class="flex flex-1 justify-start ml-4 gap-5 text-sm font-black">
+                            <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">납품</p><p class="text-blue-500 text-[18px]">${data.supply}</p></div>
+                            <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">판매</p><p class="text-red-500 text-[18px]">${data.sales}</p></div>
+                            <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">재고</p><p class="text-slate-900 text-[18px]">${data.supply - data.sales}</p></div>
+                        </div>
+                        <div class="handle text-slate-300 text-2xl pl-2" onclick="event.stopPropagation()">≡</div>
                     </div>
-                    <!-- 수치 영역을 왼쪽으로 더 당김, 숫자 15% 확대 -->
-                    <div class="flex flex-1 justify-start ml-4 gap-5 text-sm font-black">
-                        <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">납품</p><p class="text-blue-500 text-[18px]">${data.supply}</p></div>
-                        <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">판매</p><p class="text-red-500 text-[18px]">${data.sales}</p></div>
-                        <div class="text-center"><p class="text-[9px] text-slate-400 mb-0.5 font-bold">재고</p><p class="text-slate-900 text-[18px]">${data.supply - data.sales}</p></div>
+                    <div id="detail-${name.replace(/\s+/g, '')}" class="hidden mt-2 bg-white/70 rounded-[1.5rem] overflow-hidden border border-white/60 shadow-inner mx-2">
+                        ${detailContent}
                     </div>
-                    <div class="handle text-slate-300 text-2xl pl-2">≡</div>
                 `;
                 container.appendChild(card);
             });
+            
+            new Sortable(container, { handle: '.handle', animation: 200 });
         }
+
+        window.toggleDetail = (id) => {
+            const el = document.getElementById(`detail-${id}`);
+            el.classList.toggle('hidden');
+        };
+
+        window.startEdit = (id, rec) => {
+            editingId = id;
+            closeInputs();
+            const target = rec.product === "결제" ? 'settleInput' : 'basicInput';
+            document.getElementById(target).classList.remove('hidden');
+            if (rec.product === "결제") {
+                document.getElementById('sDate').value = rec.date;
+                document.getElementById('sQty').value = rec.salesCount;
+                document.getElementById('sTotal').value = rec.settleAmount;
+            } else {
+                document.getElementById('bDate').value = rec.date;
+                document.getElementById('bProd').value = rec.product;
+                document.getElementById('bSupply').value = rec.supplyCount;
+                document.getElementById('bSales').value = rec.salesCount;
+            }
+        };
+
+        function renderHistory(filterMonth) {
+            const histBody = document.getElementById('historyList');
+            histBody.innerHTML = '';
+            Object.entries(allRecords)
+                .filter(([_, rec]) => rec.date?.startsWith(filterMonth))
+                .sort((a, b) => new Date(b[1].date) - new Date(a[1].date))
+                .forEach(([id, rec]) => {
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center p-4 bg-white/60 rounded-2xl mb-2 text-[13px] cursor-pointer border border-white/40 active:scale-[0.98]";
+                    div.onclick = () => startEdit(id, rec);
+                    div.innerHTML = `<div class="flex flex-col"><span class="text-[10px] text-slate-400 font-bold">${formatDate(rec.date)}</span><span class="font-black">${rec.product}</span></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-slate-300">🗑️</button>`;
+                    histBody.appendChild(div);
+                });
+        }
+
+        window.openInput = (type) => { editingId = null; closeInputs(); document.getElementById(type === 'basic' ? 'basicInput' : 'settleInput').classList.remove('hidden'); };
+        window.closeInputs = () => { document.getElementById('basicInput').classList.add('hidden'); document.getElementById('settleInput').classList.add('hidden'); };
+        window.saveData = (type) => {
+            let data = { timestamp: serverTimestamp() };
+            const prefix = type === 'basic' ? 'b' : 's';
+            data.date = document.getElementById(`${prefix}Date`).value;
+            if (type === 'basic') {
+                data.product = document.getElementById('bProd').value;
+                data.supplyCount = Number(document.getElementById('bSupply').value) || 0;
+                data.salesCount = Number(document.getElementById('bSales').value) || 0;
+            } else {
+                data.product = "결제";
+                data.settleAmount = Number(document.getElementById('sTotal').value) || 0;
+                data.salesCount = Number(document.getElementById('sQty').value) || 0;
+            }
+            const action = editingId ? update(ref(db, `records/${editingId}`), data) : push(ref(db, 'records'), data);
+            action.then(() => closeInputs());
+        };
+        window.deleteRecord = (id) => { if (confirm("삭제할까요?")) remove(ref(db, `records/${id}`)); };
 
         function updateChart(chartData) {
             const ctx = document.getElementById('salesChart').getContext('2d');
@@ -137,46 +221,63 @@
 </head>
 <body class="bg-slate-50 p-4 pb-48 overflow-x-hidden">
     <div class="max-w-md mx-auto space-y-6">
-        <!-- 상단 헤더 재설계 -->
         <header class="py-2 px-1 space-y-4">
-            <!-- 타이틀 중앙 정렬 및 15% 확대 -->
             <h1 class="text-[26px] font-black tracking-tighter text-center">웃는 고양이 <span class="text-orange-500">×</span> 세발자전거</h1>
-            
-            <!-- 날짜(좌) 및 캘린더(우) 배치, 높이 통일 -->
             <div class="flex justify-between items-center">
-                <p id="headerDate" class="text-[12.5px] font-black text-slate-600 tracking-wider flex items-center h-[42px]"></p>
-                <input type="month" id="monthFilter" class="bg-white border-none rounded-xl px-4 h-[42px] text-[12.5px] font-black shadow-md outline-none text-slate-700">
+                <p id="headerDate" class="text-[12.5px] font-black text-slate-600 tracking-wider h-[42px] flex items-center"></p>
+                <input type="month" id="monthFilter" class="bg-white border-none rounded-xl px-4 h-[42px] text-[12.5px] font-black shadow-md outline-none">
             </div>
         </header>
 
-        <!-- 대시보드 -->
         <section class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white relative overflow-hidden flex flex-col justify-between h-60">
             <div class="relative z-10">
-                <!-- 날짜 텍스트 15% 확대 -->
                 <p id="monthlyTitle" class="text-[11.5px] font-black opacity-80 uppercase tracking-widest mb-1"></p>
                 <p id="mAmount" class="text-4xl font-black tracking-tight">0원</p>
-                
-                <!-- 총 판매액 10% 확대 -->
                 <p class="text-[11px] font-black text-black opacity-70 uppercase tracking-widest mt-6 mb-0.5">총 판매액</p>
                 <p id="tAmount" class="text-[28px] font-black text-black leading-tight">0원</p>
             </div>
-            
             <div class="absolute -right-4 top-1/2 -translate-y-1/2 w-44 h-44 opacity-40 z-0"><canvas id="salesChart"></canvas></div>
-            
-            <!-- 하단 텍스트 10% 확대 및 개수 색상 변경 -->
             <div class="relative z-10 flex gap-6 text-[13px] font-bold text-slate-800 border-t border-white/20 pt-4">
                 <p>월 판매 <span id="mCount" class="font-black text-slate-800">0개</span></p>
                 <p>총 판매 <span id="tCount" class="font-black text-slate-800">0개</span></p>
             </div>
         </section>
 
-        <div id="cardContainer" class="space-y-3"></div>
+        <div id="cardContainer" class="space-y-1"></div>
 
-        <!-- 하단 고정 버튼 -->
+        <section class="bg-slate-200/30 p-6 rounded-[2.5rem] border border-white/60">
+            <h3 class="font-black text-[10px] mb-6 text-slate-400 tracking-[0.3em] uppercase text-center">전체 활동 타임라인</h3>
+            <div id="historyList"></div>
+        </section>
+
         <div class="fixed bottom-8 left-6 right-6 max-w-md mx-auto grid grid-cols-2 gap-4 z-[100]">
-            <button class="bg-slate-900 text-white py-5 rounded-[2.2rem] font-black shadow-2xl text-base active:scale-95 transition-all">📦 수량 기록</button>
-            <button class="bg-orange-500 text-white py-5 rounded-[2.2rem] font-black shadow-2xl text-base active:scale-95 transition-all">💰 정산 기록</button>
+            <button onclick="openInput('basic')" class="bg-slate-900 text-white py-5 rounded-[2.2rem] font-black shadow-2xl">📦 수량 기록</button>
+            <button onclick="openInput('settle')" class="bg-orange-500 text-white py-5 rounded-[2.2rem] font-black shadow-2xl">💰 정산 기록</button>
         </div>
+
+        <!-- 입력 패널 -->
+        <section id="basicInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-2xl z-[101] border border-slate-100">
+            <div class="flex justify-between items-center mb-4"><h2 class="font-black text-lg">수량 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-2xl">✕</button></div>
+            <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl mb-4 font-bold outline-none">
+            <select id="bProd" class="w-full p-4 bg-slate-50 rounded-2xl mb-4 font-bold outline-none">
+                <option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
+            </select>
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <input type="number" id="bSupply" placeholder="납품" class="p-5 bg-blue-50 rounded-2xl font-black text-center text-xl outline-none">
+                <input type="number" id="bSales" placeholder="판매" class="p-5 bg-red-50 rounded-2xl font-black text-center text-xl outline-none">
+            </div>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-[1.8rem] font-black text-lg">데이터 저장</button>
+        </section>
+
+        <section id="settleInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-2xl z-[101] border border-slate-100">
+            <div class="flex justify-between items-center mb-4"><h2 class="font-black text-lg text-orange-600">정산 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-2xl">✕</button></div>
+            <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl mb-4 font-bold outline-none">
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <input type="number" id="sQty" placeholder="판매수" class="p-5 bg-slate-50 rounded-2xl font-bold text-center outline-none">
+                <input type="number" id="sTotal" placeholder="정산금" class="p-5 bg-orange-50 rounded-2xl font-black text-orange-600 text-center outline-none">
+            </div>
+            <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-[1.8rem] font-black text-lg">정산 완료</button>
+        </section>
     </div>
 </body>
 </html>

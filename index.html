@@ -65,25 +65,38 @@
         }
 
         function processData() {
-            const summary = {}; let mSettle = 0; let mSales = 0; let tSettle = 0; let tSales = 0;
+            const summary = {}; 
+            let mSettle = 0; let mSales = 0; 
+            let tSettle = 0; let tSales = 0;
+            const historyMap = {}; // 월별 히스토리용
             const filterMonth = document.getElementById('monthFilter').value;
             const monthlyChartData = {};
 
             document.getElementById('monthlyTitle').innerText = `${filterMonth.substring(2,4)}년 ${parseInt(filterMonth.substring(5))}월`;
 
             Object.entries(allRecords).forEach(([id, rec]) => {
+                const recMonth = rec.date?.substring(0, 7);
                 let prod = rec.product || "미분류";
+
                 if (prod === "결제") {
-                    tSettle += Number(rec.settleAmount || 0);
-                    if (rec.date?.startsWith(filterMonth)) mSettle += Number(rec.settleAmount || 0);
+                    const amt = Number(rec.settleAmount || 0);
+                    tSettle += amt;
+                    if (recMonth === filterMonth) mSettle += amt;
+                    
+                    // 히스토리 집계 (현재 선택월 제외)
+                    if (recMonth !== filterMonth) {
+                        historyMap[recMonth] = (historyMap[recMonth] || 0) + amt;
+                    }
                     return;
                 }
+
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0, allDetails: [] };
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
                 summary[prod].allDetails.push({ ...rec, id: id });
                 tSales += Number(rec.salesCount || 0);
-                if (rec.date?.startsWith(filterMonth)) {
+
+                if (recMonth === filterMonth) {
                     mSales += Number(rec.salesCount || 0);
                     if (Number(rec.salesCount) > 0) monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
                 }
@@ -96,8 +109,37 @@
             
             renderCards(summary);
             renderHistory(filterMonth);
+            renderMonthlySettleHistory(historyMap);
             updateChart(monthlyChartData);
         }
+
+        // 월간 정산 히스토리 렌더링
+        function renderMonthlySettleHistory(historyMap) {
+            const container = document.getElementById('monthlySettleList');
+            container.innerHTML = '';
+            
+            const sortedMonths = Object.keys(historyMap).sort().reverse();
+            
+            if (sortedMonths.length === 0) {
+                container.innerHTML = `<div class="text-center py-6 text-slate-400 text-xs font-bold">이전 정산 기록이 없습니다.</div>`;
+                return;
+            }
+
+            sortedMonths.forEach(m => {
+                const row = document.createElement('div');
+                row.className = "flex justify-between items-center py-4 border-b border-black/5 last:border-0 px-6";
+                row.innerHTML = `
+                    <span class="text-[13px] text-slate-500 font-bold">${m.substring(2,4)}년 ${parseInt(m.substring(5))}월</span>
+                    <span class="text-[15px] font-black text-slate-800">${historyMap[m].toLocaleString()}원</span>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        window.toggleDashboardHistory = () => {
+            const el = document.getElementById('dashboardHistory');
+            el.classList.toggle('hidden');
+        };
 
         function renderCards(summary) {
             const container = document.getElementById('cardContainer');
@@ -125,35 +167,16 @@
                 card.innerHTML = `
                     <div onclick="toggleDetail('${name.replace(/\s+/g, '')}')" style="background-color: ${theme.bg}" 
                          class="relative overflow-hidden backdrop-blur-sm rounded-[1.6rem] p-5 shadow-sm border border-white/40 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all">
-                        
-                        <!-- 왼쪽 세로선 인디케이터 -->
                         <div class="absolute left-0 top-1/4 bottom-1/4 w-[3.5px] rounded-r-full" style="background-color: ${theme.main}"></div>
-
-                        <!-- 품목명 (좌측 고정) -->
                         <div class="w-[28%] pl-2">
                             <span class="font-black text-slate-800 text-[14px] tracking-tighter truncate block">${name}</span>
                         </div>
-
-                        <!-- 수치 영역 (전체 중앙 배치) -->
                         <div class="flex-1 flex justify-center items-center gap-6 px-2">
-                            <div class="text-center">
-                                <p class="text-[9px] text-slate-400 font-bold mb-0.5">납품</p>
-                                <p class="text-blue-500 text-[19px] font-black leading-none">${data.supply}</p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-[9px] text-slate-400 font-bold mb-0.5">판매</p>
-                                <p class="text-red-500 text-[19px] font-black leading-none">${data.sales}</p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-[9px] text-slate-400 font-bold mb-0.5">재고</p>
-                                <p class="text-slate-900 text-[19px] font-black leading-none">${data.supply - data.sales}</p>
-                            </div>
+                            <div class="text-center"><p class="text-[9px] text-slate-400 font-bold mb-0.5">납품</p><p class="text-blue-500 text-[19px] font-black leading-none">${data.supply}</p></div>
+                            <div class="text-center"><p class="text-[9px] text-slate-400 font-bold mb-0.5">판매</p><p class="text-red-500 text-[19px] font-black leading-none">${data.sales}</p></div>
+                            <div class="text-center"><p class="text-[9px] text-slate-400 font-bold mb-0.5">재고</p><p class="text-slate-900 text-[19px] font-black leading-none">${data.supply - data.sales}</p></div>
                         </div>
-
-                        <!-- 핸들 아이콘 (우측 고정) -->
-                        <div class="w-[10%] flex justify-end">
-                            <div class="handle text-slate-300 text-2xl" onclick="event.stopPropagation()">≡</div>
-                        </div>
+                        <div class="w-[10%] flex justify-end"><div class="handle text-slate-300 text-2xl" onclick="event.stopPropagation()">≡</div></div>
                     </div>
                     <div id="detail-${name.replace(/\s+/g, '')}" class="hidden mt-2 bg-white/70 rounded-[1.5rem] overflow-hidden border border-white/60 shadow-inner mx-2">
                         ${detailContent}
@@ -161,18 +184,13 @@
                 `;
                 container.appendChild(card);
             });
-            
             new Sortable(container, { handle: '.handle', animation: 200 });
         }
 
-        window.toggleDetail = (id) => {
-            const el = document.getElementById(`detail-${id}`);
-            el.classList.toggle('hidden');
-        };
+        window.toggleDetail = (id) => { document.getElementById(`detail-${id}`).classList.toggle('hidden'); };
 
         window.startEdit = (id, rec) => {
-            editingId = id;
-            closeInputs();
+            editingId = id; closeInputs();
             const target = rec.product === "결제" ? 'settleInput' : 'basicInput';
             document.getElementById(target).classList.remove('hidden');
             if (rec.product === "결제") {
@@ -240,7 +258,6 @@
 </head>
 <body class="bg-slate-50 p-4 pb-48 overflow-x-hidden">
     <div class="max-w-md mx-auto space-y-6">
-        <!-- 헤더 -->
         <header class="py-2 px-1 space-y-4">
             <h1 class="text-[26px] font-black tracking-tighter text-center">웃는 고양이 <span class="text-orange-500">×</span> 세발자전거</h1>
             <div class="flex justify-between items-center">
@@ -249,37 +266,42 @@
             </div>
         </header>
 
-        <!-- 대시보드 -->
-        <section class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white relative overflow-hidden flex flex-col justify-between h-60">
-            <div class="relative z-10">
-                <p id="monthlyTitle" class="text-[11.5px] font-black opacity-80 uppercase tracking-widest mb-1"></p>
-                <p id="mAmount" class="text-4xl font-black tracking-tight">0원</p>
-                <p class="text-[11px] font-black text-black opacity-70 uppercase tracking-widest mt-6 mb-0.5">총 판매액</p>
-                <p id="tAmount" class="text-[28px] font-black text-black leading-tight">0원</p>
+        <!-- 대시보드 (클릭 시 히스토리 토글) -->
+        <div class="space-y-2">
+            <section onclick="toggleDashboardHistory()" class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white relative overflow-hidden flex flex-col justify-between h-60 cursor-pointer active:scale-[0.99] transition-all">
+                <div class="relative z-10">
+                    <p id="monthlyTitle" class="text-[11.5px] font-black opacity-80 uppercase tracking-widest mb-1"></p>
+                    <p id="mAmount" class="text-4xl font-black tracking-tight">0원</p>
+                    <p class="text-[11px] font-black text-black opacity-70 uppercase tracking-widest mt-6 mb-0.5">총 판매액</p>
+                    <p id="tAmount" class="text-[28px] font-black text-black leading-tight">0원</p>
+                </div>
+                <div class="absolute -right-4 top-1/2 -translate-y-1/2 w-44 h-44 opacity-40 z-0"><canvas id="salesChart"></canvas></div>
+                <div class="relative z-10 flex gap-6 text-[13px] font-bold text-slate-800 border-t border-white/20 pt-4">
+                    <p>월 판매 <span id="mCount" class="font-black text-slate-800">0개</span></p>
+                    <p>총 판매 <span id="tCount" class="font-black text-slate-800">0개</span></p>
+                </div>
+            </section>
+            
+            <!-- 월간 정산 히스토리 슬라이드 창 -->
+            <div id="dashboardHistory" class="hidden bg-white/80 rounded-[2rem] overflow-hidden border border-white/60 shadow-inner mx-2 transition-all">
+                <div class="bg-slate-100/50 py-3 px-6 text-[10px] font-black text-slate-400 tracking-widest border-b border-black/5">MONTHLY HISTORY</div>
+                <div id="monthlySettleList"></div>
             </div>
-            <div class="absolute -right-4 top-1/2 -translate-y-1/2 w-44 h-44 opacity-40 z-0"><canvas id="salesChart"></canvas></div>
-            <div class="relative z-10 flex gap-6 text-[13px] font-bold text-slate-800 border-t border-white/20 pt-4">
-                <p>월 판매 <span id="mCount" class="font-black text-slate-800">0개</span></p>
-                <p>총 판매 <span id="tCount" class="font-black text-slate-800">0개</span></p>
-            </div>
-        </section>
+        </div>
 
-        <!-- 품목 리스트 (수정된 레이아웃) -->
         <div id="cardContainer" class="space-y-1"></div>
 
-        <!-- 타임라인 -->
         <section class="bg-slate-200/30 p-6 rounded-[2.5rem] border border-white/60">
             <h3 class="font-black text-[10px] mb-6 text-slate-400 tracking-[0.3em] uppercase text-center">전체 활동 타임라인</h3>
             <div id="historyList"></div>
         </section>
 
-        <!-- 고정 버튼 -->
         <div class="fixed bottom-8 left-6 right-6 max-w-md mx-auto grid grid-cols-2 gap-4 z-[100]">
             <button onclick="openInput('basic')" class="bg-slate-900 text-white py-5 rounded-[2.2rem] font-black shadow-2xl active:scale-95 transition-all">📦 수량 기록</button>
             <button onclick="openInput('settle')" class="bg-orange-500 text-white py-5 rounded-[2.2rem] font-black shadow-2xl active:scale-95 transition-all">💰 정산 기록</button>
         </div>
 
-        <!-- 입력 패널 -->
+        <!-- 입력 패널 생략 (위와 동일) -->
         <section id="basicInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-2xl z-[101] border border-slate-100">
             <div class="flex justify-between items-center mb-4"><h2 class="font-black text-lg">수량 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-2xl">✕</button></div>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl mb-4 font-bold outline-none">

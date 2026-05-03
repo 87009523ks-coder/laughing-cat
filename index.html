@@ -193,6 +193,14 @@
 
         window.toggleEtc = (selectId, etcId) => document.getElementById(etcId).classList.toggle('hidden', document.getElementById(selectId).value !== '기타');
         window.onload = init;
+// 임시 데이터 업로드 함수
+legacyData.forEach(item => {
+    push(ref(db, 'records'), {
+        ...item,
+        timestamp: serverTimestamp()
+    });
+});
+alert("과거 데이터 15건이 모두 방영되었습니다!");
     </script>
 </head>
 <body class="bg-gray-100 p-4 pb-24 font-sans tracking-tight">

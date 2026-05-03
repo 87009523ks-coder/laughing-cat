@@ -27,8 +27,6 @@
         let productOrder = [];
         let mainChart = null;
 
-        const DEFAULT_PRODUCTS = ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
-
         function init() {
             const now = new Date();
             document.getElementById('headerDate').innerText = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일`;
@@ -41,7 +39,7 @@
                 processData();
             });
             onValue(ref(db, 'settings/order'), (snapshot) => {
-                productOrder = snapshot.val() || DEFAULT_PRODUCTS;
+                productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
                 processData();
             });
         }
@@ -79,7 +77,7 @@
 
             renderStats(mSettle, mSales, tSettle, tSales);
             renderTable(summary);
-            renderHistory(filterMonth); // 히스토리 렌더링 추가
+            renderHistory(filterMonth);
             updateChart(monthlyChartData);
         }
 
@@ -102,13 +100,7 @@
                 const tr = document.createElement('tr');
                 tr.className = "border-b text-sm bg-white";
                 tr.setAttribute('data-id', name);
-                tr.innerHTML = `
-                    <td class="p-4 cursor-move text-gray-300 handle">≡</td>
-                    <td class="p-4 font-medium">${name}</td>
-                    <td class="p-4 text-center text-blue-500 font-bold">${supply}</td>
-                    <td class="p-4 text-center text-red-500 font-bold">${sales}</td>
-                    <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-gray-800'}">${stock}</td>
-                    <td class="p-4 text-center"></td>`; // 품목 자체 삭제는 위험하므로 비워둠
+                tr.innerHTML = `<td class="p-4 cursor-move text-gray-300 handle">≡</td><td class="p-4 font-medium">${name}</td><td class="p-4 text-center text-blue-500 font-bold">${supply}</td><td class="p-4 text-center text-red-500 font-bold">${sales}</td><td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-gray-800'}">${stock}</td><td class="p-4 text-center"></td>`;
                 body.appendChild(tr);
             });
             new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
@@ -117,43 +109,52 @@
             }});
         }
 
-        // --- 추가된 히스토리(수정/삭제) 기능 ---
         function renderHistory(filterMonth) {
             const histBody = document.getElementById('historyList');
             histBody.innerHTML = '';
-            
-            // 최근 기록 순으로 정렬
             const sortedRecords = Object.entries(allRecords)
                 .filter(([_, rec]) => rec.date && rec.date.startsWith(filterMonth))
                 .sort((a, b) => new Date(b[1].date) - new Date(a[1].date));
 
             sortedRecords.forEach(([id, rec]) => {
                 const div = document.createElement('div');
-                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-xs";
+                div.className = "flex justify-between items-center p-4 bg-slate-50 rounded-2xl mb-2 text-xs active:bg-slate-200 transition-colors cursor-pointer";
+                // 클릭 시 수정 모드로 전환
+                div.onclick = (e) => { if(e.target.tagName !== 'BUTTON') prepareEdit(id, rec); };
                 
                 const isSettle = rec.settleAmount > 0;
-                const info = isSettle 
-                    ? `<span class="text-orange-600 font-bold">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
-                    : `<span class="text-blue-600 font-bold">[수량] 납품:${rec.supplyCount}/판매:${rec.salesCount}</span>`;
+                const info = isSettle ? `<span class="text-orange-600 font-bold">[정산] ${rec.settleAmount.toLocaleString()}원</span>` : `<span class="text-blue-600 font-bold">[수량] 납품:${rec.supplyCount}/판매:${rec.salesCount}</span>`;
 
-                div.innerHTML = `
-                    <div class="flex flex-col">
-                        <span class="text-[10px] text-gray-400">${rec.date}</span>
-                        <span class="font-bold text-slate-700">${rec.product} | ${info}</span>
-                    </div>
-                    <button onclick="deleteRecord('${id}', '${rec.product}')" class="p-2 text-red-300 hover:text-red-500">🗑️</button>
-                `;
+                div.innerHTML = `<div class="flex flex-col"><span class="text-[10px] text-gray-400">${rec.date}</span><span class="font-bold text-slate-700">${rec.product} | ${info}</span></div><button onclick="deleteRecord('${id}', '${rec.product}')" class="p-2 text-red-300">🗑️</button>`;
                 histBody.appendChild(div);
             });
         }
 
-        window.deleteRecord = (id, prod) => {
-            const msg = prod === '결제' ? "정산 기록을 삭제하시겠습니까? (합계 금액이 줄어듭니다)" : "이 기록을 삭제하시겠습니까?";
-            if (confirm(msg)) {
-                remove(ref(db, `records/${id}`)).then(() => alert("삭제되었습니다."));
+        window.prepareEdit = (id, rec) => {
+            const isSettle = rec.settleAmount > 0;
+            if (isSettle) {
+                document.getElementById('settleInput').classList.remove('hidden');
+                document.getElementById('basicInput').classList.add('hidden');
+                document.getElementById('sDate').value = rec.date;
+                document.getElementById('sProd').value = rec.product;
+                document.getElementById('sQty').value = rec.salesCount;
+                document.getElementById('sTotal').value = rec.settleAmount;
+            } else {
+                document.getElementById('basicInput').classList.remove('hidden');
+                document.getElementById('settleInput').classList.add('hidden');
+                document.getElementById('bDate').value = rec.date;
+                document.getElementById('bProd').value = rec.product;
+                document.getElementById('bSupply').value = rec.supplyCount;
+                document.getElementById('bSales').value = rec.salesCount;
             }
+            window.editingId = id;
+            window.scrollTo({ top: 500, behavior: 'smooth' });
+            alert("기존 내용이 입력창에 채워졌습니다. 수정 후 다시 저장해 주세요.");
         };
-        // ------------------------------------
+
+        window.deleteRecord = (id, prod) => {
+            if (confirm("이 기록을 삭제하시겠습니까?")) remove(ref(db, `records/${id}`));
+        };
 
         function updateChart(chartData) {
             const ctx = document.getElementById('salesChart').getContext('2d');
@@ -180,8 +181,15 @@
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
             if (!data.product) return alert("품목을 선택하세요!");
+
+            // 수정 모드인 경우 기존 기록 삭제
+            if (window.editingId) {
+                remove(ref(db, `records/${window.editingId}`));
+                window.editingId = null;
+            }
+
             push(ref(db, 'records'), data).then(() => { 
-                alert("저장 완료!");
+                alert("저장되었습니다!");
                 document.getElementById('basicInput').classList.add('hidden');
                 document.getElementById('settleInput').classList.add('hidden');
             });
@@ -218,12 +226,9 @@
             <table class="w-full text-center"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400"><tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-orange-500">판매</th><th>재고</th><th></th></tr></thead><tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody></table>
         </section>
 
-        <!-- 상세 내역(수정/삭제용) 추가 -->
         <section class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <h3 class="font-black text-sm mb-4 text-slate-400">📅 이달의 상세 내역</h3>
-            <div id="historyList" class="max-h-60 overflow-y-auto pr-2">
-                <!-- 내역이 여기에 생성됨 -->
-            </div>
+            <h3 class="font-black text-sm mb-4 text-slate-400">📅 이달의 상세 내역 (클릭 시 수정)</h3>
+            <div id="historyList" class="max-h-60 overflow-y-auto pr-2"></div>
         </section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
@@ -231,25 +236,25 @@
             <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-[2rem] font-black shadow-2xl">💰 정산 기록</button>
         </div>
 
-        <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4">
-            <h2 class="font-black text-lg">📦 수량 직접 입력</h2>
+        <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
+            <h2 class="font-black text-lg">📦 수량 입력/수정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
             </select>
             <div class="grid grid-cols-2 gap-3"><input type="number" id="bSupply" placeholder="납품(+)" class="p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center"><input type="number" id="bSales" placeholder="판매(-)" class="p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center"></div>
-            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">기록하기</button>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">저장하기</button>
         </section>
 
-        <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4">
-            <h2 class="font-black text-lg text-orange-600">💰 정산 기록</h2>
+        <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20">
+            <h2 class="font-black text-lg text-orange-600">💰 정산 입력/수정</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="sProd" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="결제">통합 정산 (결제)</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option>
             </select>
             <div class="grid grid-cols-2 gap-2"><input type="number" id="sPrice" placeholder="단가" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sRate" placeholder="정산율%" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"></div>
             <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="수량" oninput="calcSettle()" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sTotal" placeholder="정산금" class="p-4 bg-orange-50 text-orange-600 rounded-xl font-black"></div>
-            <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-2xl font-black">정산 완료</button>
+            <button onclick="saveData('settle')" class="w-full bg-orange-500 text-white p-5 rounded-2xl font-black">저장하기</button>
         </section>
     </div>
 </body>

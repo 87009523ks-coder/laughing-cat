@@ -63,20 +63,26 @@
                 const sQty = Number(rec.salesCount || 0);
                 const iQty = Number(rec.supplyCount || 0);
 
+                // 전체 누적 데이터 (결제 포함)
                 totalSettle += sAmount;
                 totalSales += sQty;
+
+                // 월간 실적 계산
+                if (rec.date && rec.date.startsWith(filterMonth)) {
+                    monthlySettle += sAmount;
+                    monthlySales += sQty;
+                    // 차트에서는 '결제' 항목 제외
+                    if (sQty > 0 && prod !== "결제") {
+                        monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
+                    }
+                }
+
+                // ⭐ 재고 목록에서 '결제' 항목 제외 로직
+                if (prod === "결제") return; 
 
                 if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                 summary[prod].supply += iQty;
                 summary[prod].sales += sQty;
-
-                if (rec.date && rec.date.startsWith(filterMonth)) {
-                    monthlySettle += sAmount;
-                    monthlySales += sQty;
-                    if (sQty > 0) {
-                        monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
-                    }
-                }
             });
 
             renderTable(summary);
@@ -88,7 +94,6 @@
         function renderStats(mSettle, mSales, tSettle, tSales) {
             document.getElementById('mAmount').innerText = mSettle.toLocaleString() + '원';
             document.getElementById('mCount').innerText = mSales + '개';
-            // 총 판매액 (색상 노란색 계열로 강조)
             document.getElementById('tAmount').innerText = tSettle.toLocaleString() + '원';
             document.getElementById('tCount').innerText = tSales + '개';
         }

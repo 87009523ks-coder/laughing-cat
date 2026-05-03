@@ -30,7 +30,6 @@
 
         const colorPalette = ['#FFD93D', '#FF8B13', '#FF6B6B', '#4D96FF', '#6BCB77', '#9D72FF'];
         const productColors = {};
-        const productBgColors = {};
 
         function init() {
             const now = new Date();
@@ -45,10 +44,7 @@
             });
             onValue(ref(db, 'settings/order'), (snapshot) => {
                 productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
-                productOrder.forEach((name, i) => { 
-                    productColors[name] = colorPalette[i % colorPalette.length];
-                    productBgColors[name] = colorPalette[i % colorPalette.length] + '22';
-                });
+                productOrder.forEach((name, i) => { productColors[name] = colorPalette[i % colorPalette.length]; });
                 processData();
             });
         }
@@ -63,18 +59,18 @@
 
             Object.values(allRecords).forEach(rec => {
                 let prod = rec.product || "미분류";
-                if (prod.includes("고양이 인형")) prod = "고양이 인형";
                 if (prod === "결제") {
                     tSettle += Number(rec.settleAmount || 0);
                     if (rec.date && rec.date.startsWith(filterMonth)) mSettle += Number(rec.settleAmount || 0);
                     return;
                 }
-                if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
+                if (!summary[prod]) summary[prod] = { supply: 0, sales: 0, details: [] };
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
                 tSales += Number(rec.salesCount || 0);
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     mSales += Number(rec.salesCount || 0);
+                    summary[prod].details.push(rec);
                     if (Number(rec.salesCount) > 0) monthlyChartData[prod] = (monthlyChartData[prod] || 0) + Number(rec.salesCount);
                 }
             });
@@ -95,23 +91,49 @@
         function renderTable(summary) {
             const body = document.getElementById('inventoryBody');
             body.innerHTML = '';
-            let displayList = productOrder.filter(p => summary[p]);
-            Object.keys(summary).forEach(p => { if(!displayList.includes(p)) displayList.push(p); });
+            let displayList = productOrder.filter(p => summary[p] || productOrder.includes(p));
+            
             displayList.forEach(name => {
-                const { supply, sales } = summary[name];
-                const stock = supply - sales;
+                const data = summary[name] || { supply: 0, sales: 0, details: [] };
+                const stock = data.supply - data.sales;
                 const dotColor = productColors[name] || '#ccc';
-                const rowBg = productBgColors[name] || '#ffffff';
+                
                 const tr = document.createElement('tr');
-                tr.setAttribute('data-id', name);
-                tr.style.backgroundColor = rowBg;
-                tr.className = "border-b text-sm transition-colors";
-                tr.innerHTML = `<td class="p-4 cursor-move text-gray-400 handle">≡</td><td class="p-4 text-left flex items-center gap-2 font-black text-slate-800"><div class="w-2.5 h-2.5 rounded-full" style="background-color: ${dotColor}"></div>${name}</td><td class="p-4 text-center text-blue-600 font-bold">${supply}</td><td class="p-4 text-center text-red-500 font-bold">${sales}</td><td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>`;
+                tr.className = "border-b text-sm transition-all active:bg-slate-50 cursor-pointer";
+                tr.onclick = () => {
+                    const detailRow = document.getElementById(`detail-${name.replace(/\s+/g, '')}`);
+                    detailRow.classList.toggle('hidden');
+                };
+                tr.innerHTML = `
+                    <td class="p-4 text-gray-400 handle font-bold">≡</td>
+                    <td class="p-4 text-left flex items-center gap-2 font-black text-slate-800">
+                        <div class="w-2.5 h-2.5 rounded-full" style="background-color: ${dotColor}"></div>${name}
+                    </td>
+                    <td class="p-4 text-center text-blue-600 font-bold">${data.supply}</td>
+                    <td class="p-4 text-center text-red-500 font-bold">${data.sales}</td>
+                    <td class="p-4 text-center font-black ${stock < 0 ? 'text-red-600' : 'text-slate-900'}">${stock}</td>
+                `;
+
+                const detailTr = document.createElement('tr');
+                detailTr.id = `detail-${name.replace(/\s+/g, '')}`;
+                detailTr.className = "hidden bg-slate-50 shadow-inner";
+                const detailContent = data.details.length > 0 
+                    ? data.details.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d => 
+                        `<div class="flex justify-between py-1 border-b border-white text-[10px]">
+                            <span>${d.date}</span>
+                            <span>납품:${d.supplyCount} / 판매:${d.salesCount}</span>
+                         </div>`).join('')
+                    : `<div class="text-center py-2 text-gray-400 text-[10px]">이번 달 기록이 없습니다.</div>`;
+                
+                detailTr.innerHTML = `<td colspan="5" class="p-4">${detailContent}</td>`;
+
                 body.appendChild(tr);
+                body.appendChild(detailTr);
             });
+            
             new Sortable(body, { handle: '.handle', animation: 150, onEnd: () => {
-                const newOrder = Array.from(body.querySelectorAll('tr')).map(tr => tr.getAttribute('data-id'));
-                set(ref(db, 'settings/order'), newOrder);
+                const newOrder = Array.from(body.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
+                if(newOrder.length > 0) set(ref(db, 'settings/order'), newOrder);
             }});
         }
 
@@ -129,35 +151,30 @@
                 const detailInfo = Number(rec.settleAmount) > 0 
                     ? `<span class="text-amber-700 font-black">[정산] ${rec.settleAmount.toLocaleString()}원</span>`
                     : `<span class="text-blue-600 font-bold">납품:${rec.supplyCount}</span> / <span class="text-red-500 font-bold">판매:${rec.salesCount}</span>`;
-                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-red-300">🗑️</button>`;
+                div.innerHTML = `<div class="flex flex-col"><span class="text-[9px] text-gray-400 mb-0.5">${rec.date}</span><div class="leading-tight"><span class="font-black text-slate-800">${rec.product}</span> | ${detailInfo}</div></div><button onclick="event.stopPropagation(); deleteRecord('${id}')" class="p-2 text-red-200 hover:text-red-500">🗑️</button>`;
                 histBody.appendChild(div);
             });
         }
 
-        window.toggleDirectInput = (val) => {
-            const input = document.getElementById('bProdDirect');
-            if (val === '직접입력') {
-                input.classList.remove('hidden');
-                input.focus();
-            } else {
-                input.classList.add('hidden');
-            }
+        window.openInput = (type) => {
+            editingId = null;
+            closeInputs();
+            if (type === 'basic') document.getElementById('basicInput').classList.remove('hidden');
+            if (type === 'settle') document.getElementById('settleInput').classList.remove('hidden');
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         };
 
         window.startEdit = (id, rec) => {
             editingId = id;
+            closeInputs();
             if (rec.product === "결제") {
                 document.getElementById('settleInput').classList.remove('hidden');
-                document.getElementById('basicInput').classList.add('hidden');
                 document.getElementById('sDate').value = rec.date;
                 document.getElementById('sQty').value = rec.salesCount;
                 document.getElementById('sTotal').value = rec.settleAmount;
-                document.getElementById('settleInput').scrollIntoView({ behavior: 'smooth' });
             } else {
                 document.getElementById('basicInput').classList.remove('hidden');
-                document.getElementById('settleInput').classList.add('hidden');
                 document.getElementById('bDate').value = rec.date;
-                
                 const select = document.getElementById('bProd');
                 const options = Array.from(select.options).map(o => o.value);
                 if (options.includes(rec.product)) {
@@ -170,30 +187,14 @@
                 }
                 document.getElementById('bSupply').value = rec.supplyCount;
                 document.getElementById('bSales').value = rec.salesCount;
-                document.getElementById('basicInput').scrollIntoView({ behavior: 'smooth' });
             }
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         };
-
-        window.deleteRecord = (id) => { if (confirm("삭제할까요?")) remove(ref(db, `records/${id}`)); };
-
-        function updateChart(chartData) {
-            const ctx = document.getElementById('salesChart').getContext('2d');
-            const labels = Object.keys(chartData);
-            const data = Object.values(chartData);
-            const colors = labels.map(label => productColors[label] || '#eee');
-            if (mainChart) mainChart.destroy();
-            mainChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 0 }] },
-                options: { plugins: { legend: { display: false } }, cutout: '75%', responsive: true, maintainAspectRatio: false }
-            });
-        }
 
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
             const prefix = type === 'basic' ? 'b' : 's';
             data.date = document.getElementById(`${prefix}Date`).value;
-            
             if (type === 'basic') {
                 const selectVal = document.getElementById('bProd').value;
                 data.product = selectVal === '직접입력' ? document.getElementById('bProdDirect').value : selectVal;
@@ -204,109 +205,99 @@
                 data.settleAmount = Number(document.getElementById('sTotal').value) || 0;
                 data.salesCount = Number(document.getElementById('sQty').value) || 0;
             }
-            if (!data.product || !data.date) return alert("날짜와 품목을 확인하세요!");
+            if (!data.product || !data.date) return alert("데이터를 완성해주세요!");
             
-            if (editingId) {
-                update(ref(db, `records/${editingId}`), data).then(() => {
-                    editingId = null;
-                    closeInputs();
-                });
-            } else {
-                push(ref(db, 'records'), data).then(() => closeInputs());
-            }
+            const action = editingId ? update(ref(db, `records/${editingId}`), data) : push(ref(db, 'records'), data);
+            action.then(() => { alert("저장 완료!"); closeInputs(); });
         };
 
-        function closeInputs() {
+        window.closeInputs = () => {
             document.getElementById('basicInput').classList.add('hidden');
             document.getElementById('settleInput').classList.add('hidden');
+            document.querySelectorAll('input').forEach(i => { if(i.type !== 'month' && i.type !== 'date') i.value = ''; });
+            document.getElementById('bProd').value = '';
             document.getElementById('bProdDirect').classList.add('hidden');
-            document.getElementById('bProdDirect').value = '';
-            document.getElementById('bSupply').value = '';
-            document.getElementById('bSales').value = '';
-            document.getElementById('sQty').value = '';
-            document.getElementById('sTotal').value = '';
-        }
-
-        window.magicInput = async () => {
-            const text = prompt("데이터를 붙여넣으세요");
-            if (!text) return;
-            try {
-                const data = JSON.parse(text);
-                await set(ref(db, 'records'), null);
-                for (const item of data) { await push(ref(db, 'records'), { ...item, timestamp: serverTimestamp() }); }
-                alert("완료!");
-            } catch (e) { alert("오류!"); }
         };
+
+        window.deleteRecord = (id) => { if (confirm("삭제하시겠습니까?")) remove(ref(db, `records/${id}`)); };
+
+        function updateChart(chartData) {
+            const ctx = document.getElementById('salesChart').getContext('2d');
+            const labels = Object.keys(chartData);
+            if (mainChart) mainChart.destroy();
+            mainChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: labels, datasets: [{ data: Object.values(chartData), backgroundColor: labels.map(l => productColors[l] || '#eee'), borderWidth: 0 }] },
+                options: { plugins: { legend: { display: false } }, cutout: '75%', responsive: true, maintainAspectRatio: false }
+            });
+        }
 
         window.onload = init;
     </script>
 </head>
-<body class="bg-slate-50 p-4 pb-40 font-sans tracking-tight text-slate-900">
-    <div class="max-w-md mx-auto space-y-5">
-        <header class="flex justify-between items-start py-4">
-            <div><h1 class="text-2xl font-black">웃는 고양이 <span class="text-amber-500">×</span> 세발자전거</h1><p id="headerDate" class="text-xs font-bold text-slate-400 mt-1"></p></div>
-            <div class="flex gap-2">
-                <button onclick="magicInput()" class="bg-amber-100 text-amber-600 px-3 py-2 rounded-xl text-[10px] font-black">✨ 자동입력</button>
-                <input type="month" id="monthFilter" class="bg-white border-none rounded-xl px-2 py-2 text-xs font-black shadow-sm">
-            </div>
+<body class="bg-slate-50 p-4 pb-48 font-sans tracking-tight text-slate-900">
+    <div class="max-w-md mx-auto space-y-6">
+        <header class="flex justify-between items-center py-2">
+            <div><h1 class="text-xl font-black">웃는 고양이 × 세발자전거</h1><p id="headerDate" class="text-[10px] font-bold text-slate-400"></p></div>
+            <input type="month" id="monthFilter" class="bg-white border-none rounded-xl px-3 py-2 text-xs font-black shadow-sm">
         </header>
 
-        <section class="bg-gradient-to-br from-orange-400 to-amber-500 rounded-[2.5rem] p-8 shadow-xl text-white space-y-8 relative overflow-hidden">
+        <section class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[2rem] p-7 shadow-xl text-white relative overflow-hidden">
             <div class="relative z-10">
-                <p id="settleTitle" class="text-[10px] font-black opacity-80 uppercase mb-1">정산액</p>
-                <p id="mAmount" class="text-5xl font-black mb-1 leading-tight">0원</p>
-                <p class="text-xs font-bold opacity-90"><span id="salesTitle">판매량</span>: <span id="mCount">0개</span></p>
+                <p id="settleTitle" class="text-[10px] font-bold opacity-60 mb-1">정산액</p>
+                <p id="mAmount" class="text-4xl font-black mb-4">0원</p>
+                <div class="flex gap-4 border-t border-white/10 pt-4">
+                    <div><p class="text-[9px] opacity-50">월 판매</p><p id="mCount" class="font-bold"></p></div>
+                    <div><p class="text-[9px] opacity-50">총 판매액</p><p id="tAmount" class="font-bold"></p></div>
+                </div>
             </div>
-            <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10 font-black">
-                <div><p class="text-[10px] opacity-80">총 판매액 (전체)</p><p id="tAmount" class="text-xl text-slate-900"></p></div>
-                <div class="text-right"><p class="text-[10px] opacity-80">총 판매수 (전체)</p><p id="tCount" class="text-xl text-slate-900"></p></div>
-            </div>
-            <div class="absolute -right-2 top-4 w-36 h-36 opacity-100"><canvas id="salesChart"></canvas></div>
+            <div class="absolute -right-4 -top-4 w-32 h-32 opacity-40"><canvas id="salesChart"></canvas></div>
         </section>
 
-        <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
-            <table class="w-full text-center">
-                <thead class="bg-slate-50/50 text-[10px] font-black text-slate-400">
-                    <tr><th></th><th class="p-4 text-left">품목</th><th>납품</th><th class="text-amber-600">판매</th><th>재고</th></tr>
+        <section class="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
+                    <tr><th class="p-4 w-8"></th><th class="text-left">품목 (클릭)</th><th>납품</th><th>판매</th><th>재고</th></tr>
                 </thead>
-                <tbody id="inventoryBody" class="divide-y divide-white/20"></tbody>
+                <tbody id="inventoryBody"></tbody>
             </table>
         </section>
 
-        <section class="bg-slate-100/50 p-6 rounded-[2.5rem] border border-slate-200">
-            <h3 id="historyTitle" class="font-black text-[12px] mb-4 text-slate-400 tracking-widest uppercase text-center">상세 내역 (클릭시 수정)</h3>
-            <div id="historyList" class="max-h-96 overflow-y-auto pr-2"></div>
+        <section class="bg-slate-100/50 p-5 rounded-[2rem]">
+            <h3 class="font-black text-[10px] text-slate-400 mb-4 text-center tracking-widest uppercase">최근 내역 (수정시 클릭)</h3>
+            <div id="historyList"></div>
         </section>
 
-        <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
-            <button onclick="editingId=null; closeInputs(); document.getElementById('basicInput').classList.remove('hidden');" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">📦 수량 기록</button>
-            <button onclick="editingId=null; closeInputs(); document.getElementById('settleInput').classList.remove('hidden');" class="bg-amber-500 text-white p-5 rounded-[2rem] font-black shadow-2xl active:scale-95 transition-transform">💰 정산 기록</button>
+        <!-- 하단 고정 버튼 -->
+        <div class="fixed bottom-6 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-3 z-[100]">
+            <button onclick="openInput('basic')" class="bg-slate-900 text-white py-5 rounded-3xl font-black shadow-2xl active:scale-95 transition-all">📦 수량 기록</button>
+            <button onclick="openInput('settle')" class="bg-amber-500 text-white py-5 rounded-3xl font-black shadow-2xl active:scale-95 transition-all">💰 정산 기록</button>
         </div>
 
-        <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-slate-900">
-            <h2 class="font-black text-lg">📦 데이터 입력/수정</h2>
+        <!-- 입력창 섹션 -->
+        <section id="basicInput" class="hidden bg-white p-8 rounded-[2.5rem] shadow-2xl space-y-4 border-4 border-slate-900">
+            <div class="flex justify-between items-center mb-2"><h2 class="font-black text-lg">📦 수량 기록/수정</h2><button onclick="closeInputs()" class="text-gray-400">닫기</button></div>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-            <select id="bProd" onchange="toggleDirectInput(this.value)" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
+            <select id="bProd" onchange="this.value==='직접입력'?document.getElementById('bProdDirect').classList.remove('hidden'):document.getElementById('bProdDirect').classList.add('hidden')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option>
-                <option value="고양이 인형">고양이 인형</option>
-                <option value="고양이 키링">고양이 키링</option>
-                <option value="북커버">북커버</option>
-                <option value="양면 파우치">양면 파우치</option>
-                <option value="꽃수세미">꽃수세미</option>
-                <option value="크로스백">크로스백</option>
-                <option value="직접입력">[직접입력]</option>
+                <option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option><option value="직접입력">[직접입력]</option>
             </select>
-            <input type="text" id="bProdDirect" placeholder="제품명을 직접 입력하세요" class="hidden w-full p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl font-bold">
-            <div class="grid grid-cols-2 gap-3"><input type="number" id="bSupply" placeholder="납품(+)" class="p-4 bg-blue-50 text-blue-600 rounded-2xl border-none font-black text-center"><input type="number" id="bSales" placeholder="판매(-)" class="p-4 bg-red-50 text-red-600 rounded-2xl border-none font-black text-center"></div>
-            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">저장/수정하기</button>
+            <input type="text" id="bProdDirect" placeholder="제품명 입력" class="hidden w-full p-4 bg-amber-50 rounded-2xl border-2 border-amber-200 font-bold">
+            <div class="grid grid-cols-2 gap-3">
+                <div class="space-y-1"><p class="text-[10px] font-bold text-blue-500 ml-2">납품(+)</p><input type="number" id="bSupply" class="w-full p-4 bg-blue-50 rounded-2xl border-none font-black text-center text-blue-600"></div>
+                <div class="space-y-1"><p class="text-[10px] font-bold text-red-500 ml-2">판매(-)</p><input type="number" id="bSales" class="w-full p-4 bg-red-50 rounded-2xl border-none font-black text-center text-red-600"></div>
+            </div>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-2xl font-black">데이터 저장하기</button>
         </section>
 
-        <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl space-y-4 mb-20 border-4 border-amber-500">
-            <h2 class="font-black text-lg text-amber-600">💰 정산 입력/수정</h2>
+        <section id="settleInput" class="hidden bg-white p-8 rounded-[2.5rem] shadow-2xl space-y-4 border-4 border-amber-500">
+            <div class="flex justify-between items-center mb-2"><h2 class="font-black text-lg text-amber-600">💰 정산 기록/수정</h2><button onclick="closeInputs()" class="text-gray-400">닫기</button></div>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-            <input type="text" id="sProd" value="결제" readonly class="w-full p-4 bg-slate-100 rounded-2xl border-none font-bold text-gray-500">
-            <div class="grid grid-cols-2 gap-2"><input type="number" id="sQty" placeholder="판매수량" class="p-4 bg-slate-50 rounded-xl font-bold"><input type="number" id="sTotal" placeholder="정산금액" class="p-4 bg-amber-50 text-amber-600 rounded-xl font-black"></div>
-            <button onclick="saveData('settle')" class="w-full bg-amber-500 text-white p-5 rounded-2xl font-black">저장/수정하기</button>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="space-y-1"><p class="text-[10px] font-bold text-slate-400 ml-2">판매 수량</p><input type="number" id="sQty" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold"></div>
+                <div class="space-y-1"><p class="text-[10px] font-bold text-amber-600 ml-2">정산 금액</p><input type="number" id="sTotal" class="w-full p-4 bg-amber-50 rounded-2xl border-none font-black text-amber-600"></div>
+            </div>
+            <button onclick="saveData('settle')" class="w-full bg-amber-500 text-white p-5 rounded-2xl font-black">정산 완료하기</button>
         </section>
     </div>
 </body>

@@ -65,7 +65,6 @@
             return `${parts[0].substring(2)}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일`;
         }
 
-        // 대시보드용 타이틀 변환 (2026-05 -> 26년 5월)
         function formatMonthTitle(monthStr) {
             const parts = monthStr.split('-');
             return `${parts[0].substring(2)}년 ${parseInt(parts[1])}월`;
@@ -76,10 +75,9 @@
             const filterMonth = document.getElementById('monthFilter').value;
             const monthlyChartData = {};
 
-            // 대시보드 타이틀 업데이트
             document.getElementById('monthlyTitle').innerText = formatMonthTitle(filterMonth);
 
-            Object.values(allRecords).forEach(rec => {
+            Object.entries(allRecords).forEach(([id, rec]) => {
                 let prod = rec.product || "미분류";
                 if (prod === "결제") {
                     tSettle += Number(rec.settleAmount || 0);
@@ -90,7 +88,9 @@
                 summary[prod].supply += Number(rec.supplyCount || 0);
                 summary[prod].sales += Number(rec.salesCount || 0);
                 tSales += Number(rec.salesCount || 0);
-                summary[prod].allDetails.push(rec);
+                
+                // 수정을 위해 ID를 기록에 포함
+                summary[prod].allDetails.push({ ...rec, id: id });
 
                 if (rec.date?.startsWith(filterMonth)) {
                     mSales += Number(rec.salesCount || 0);
@@ -125,9 +125,11 @@
                 card.style.backgroundColor = theme.bg;
                 card.className = "backdrop-blur-sm rounded-[1.5rem] p-4 shadow-sm border border-white/40 mb-3 transition-all";
                 
+                // 상세 내역 렌더링 (클릭 시 수정 이벤트 연결)
                 const detailContent = data.allDetails.length > 0 
                     ? data.allDetails.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d => 
-                        `<div class="grid grid-cols-12 items-center py-3 border-b border-black/5 last:border-0 px-2">
+                        `<div onclick="startEdit('${d.id}', ${JSON.stringify(d).replace(/"/g, '&quot;')})" 
+                              class="grid grid-cols-12 items-center py-3 border-b border-black/5 last:border-0 px-2 active:bg-black/5 transition-colors cursor-pointer">
                             <span class="col-span-4 text-[11px] text-slate-400 font-bold">${formatDate(d.date)}</span>
                             <div class="col-span-8 flex justify-center gap-3 text-[11px] font-black">
                                 <span class="text-blue-500">납품 ${d.supplyCount}개</span>
@@ -172,7 +174,32 @@
             el.classList.toggle('hidden');
         };
 
-        function renderHistory(filterMonth) {
+        window.startEdit = (id, rec) => {
+            editingId = id;
+            closeInputs();
+            if (rec.product === "결제") {
+                document.getElementById('settleInput').classList.remove('hidden');
+                document.getElementById('sDate').value = rec.date;
+                document.getElementById('sQty').value = rec.salesCount;
+                document.getElementById('sTotal').value = rec.settleAmount;
+            } else {
+                document.getElementById('basicInput').classList.remove('hidden');
+                document.getElementById('bDate').value = rec.date;
+                const select = document.getElementById('bProd');
+                if (Array.from(select.options).some(o => o.value === rec.product)) {
+                    select.value = rec.product;
+                } else {
+                    select.value = '직접입력';
+                    document.getElementById('bProdDirect').classList.remove('hidden');
+                    document.getElementById('bProdDirect').value = rec.product;
+                }
+                document.getElementById('bSupply').value = rec.supplyCount;
+                document.getElementById('bSales').value = rec.salesCount;
+            }
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+        };
+
+        window.renderHistory = (filterMonth) => {
             const histBody = document.getElementById('historyList');
             histBody.innerHTML = '';
             const sortedRecords = Object.entries(allRecords)
@@ -193,6 +220,7 @@
 
         window.openInput = (type) => { editingId = null; closeInputs(); document.getElementById(type === 'basic' ? 'basicInput' : 'settleInput').classList.remove('hidden'); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); };
         window.closeInputs = () => { document.getElementById('basicInput').classList.add('hidden'); document.getElementById('settleInput').classList.add('hidden'); document.querySelectorAll('input').forEach(i => { if(i.type === 'number' || i.type === 'text') i.value = ''; }); document.getElementById('bProd').value = ''; document.getElementById('bProdDirect').classList.add('hidden'); };
+        
         window.saveData = (type) => {
             let data = { timestamp: serverTimestamp() };
             const prefix = type === 'basic' ? 'b' : 's';
@@ -228,7 +256,7 @@
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
-        body { font-family: 'Pretendard', sans-serif; }
+        body { font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; }
         .handle { cursor: grab; }
         .handle:active { cursor: grabbing; }
     </style>
@@ -248,7 +276,6 @@
             <div class="relative z-10">
                 <p id="monthlyTitle" class="text-[9px] font-black opacity-80 uppercase tracking-widest mb-1">26년 5월</p>
                 <p id="mAmount" class="text-4xl font-black tracking-tight">0원</p>
-                
                 <p class="text-[9px] font-black text-black uppercase tracking-widest mt-5 mb-0.5">총 판매액</p>
                 <p id="tAmount" class="text-xl font-black text-black">0원</p>
             </div>
@@ -262,7 +289,7 @@
         <!-- 품목 리스트 -->
         <div id="cardContainer" class="space-y-3"></div>
 
-        <!-- 하단 활동 내역 -->
+        <!-- 활동 내역 -->
         <section class="bg-slate-200/40 p-6 rounded-[2.5rem] border border-white/60 backdrop-blur-md">
             <h3 class="font-black text-[9px] mb-5 text-slate-400 tracking-[0.25em] uppercase text-center">전체 활동 타임라인</h3>
             <div id="historyList"></div>
@@ -270,13 +297,13 @@
 
         <!-- 하단 버튼 -->
         <div class="fixed bottom-8 left-6 right-6 max-w-md mx-auto grid grid-cols-2 gap-4 z-[100]">
-            <button onclick="openInput('basic')" class="bg-slate-900 text-white py-5 rounded-[2rem] font-black shadow-2xl text-sm">📦 수량 기록</button>
-            <button onclick="openInput('settle')" class="bg-orange-500 text-white py-5 rounded-[2rem] font-black shadow-2xl text-sm">💰 정산 기록</button>
+            <button onclick="openInput('basic')" class="bg-slate-900 text-white py-5 rounded-[2rem] font-black shadow-2xl text-sm active:scale-95 transition-transform">📦 수량 기록</button>
+            <button onclick="openInput('settle')" class="bg-orange-500 text-white py-5 rounded-[2rem] font-black shadow-2xl text-sm active:scale-95 transition-transform">💰 정산 기록</button>
         </div>
 
-        <!-- 입력 패널 생략 (동일) -->
+        <!-- 입력 패널 (수량) -->
         <section id="basicInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-[0_-20px_60px_rgba(0,0,0,0.15)] space-y-4 z-[101] border border-slate-100">
-            <div class="flex justify-between items-center"><h2 class="font-black text-lg">데이터 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-xl">✕</button></div>
+            <div class="flex justify-between items-center"><h2 class="font-black text-lg">데이터 기록/수정</h2><button onclick="closeInputs()" class="text-slate-300 text-xl">✕</button></div>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
             <select id="bProd" onchange="this.value==='직접입력'?document.getElementById('bProdDirect').classList.remove('hidden'):document.getElementById('bProdDirect').classList.add('hidden')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
                 <option value="">품목을 선택하세요</option>
@@ -287,11 +314,12 @@
                 <div class="space-y-1"><p class="text-[9px] font-black text-blue-500 ml-2">납품 수량</p><input type="number" id="bSupply" class="w-full p-4 bg-blue-50 rounded-2xl font-black text-blue-600 text-center text-lg"></div>
                 <div class="space-y-1"><p class="text-[9px] font-black text-red-500 ml-2">판매 수량</p><input type="number" id="bSales" class="w-full p-4 bg-red-50 rounded-2xl font-black text-red-600 text-center text-lg"></div>
             </div>
-            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-[1.5rem] font-black mt-2">기록 저장하기</button>
+            <button onclick="saveData('basic')" class="w-full bg-slate-900 text-white p-5 rounded-[1.5rem] font-black mt-2">데이터 저장</button>
         </section>
 
+        <!-- 입력 패널 (정산) -->
         <section id="settleInput" class="hidden fixed inset-x-4 bottom-24 bg-white p-8 rounded-[3rem] shadow-[0_-20px_60px_rgba(0,0,0,0.15)] space-y-4 z-[101] border border-slate-100">
-            <div class="flex justify-between items-center"><h2 class="font-black text-lg text-orange-600">정산 기록</h2><button onclick="closeInputs()" class="text-slate-300 text-xl">✕</button></div>
+            <div class="flex justify-between items-center"><h2 class="font-black text-lg text-orange-600">정산 기록/수정</h2><button onclick="closeInputs()" class="text-slate-300 text-xl">✕</button></div>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm">
             <div class="grid grid-cols-2 gap-3">
                 <div class="space-y-1"><p class="text-[9px] font-black text-slate-400 ml-2">총 판매수</p><input type="number" id="sQty" class="w-full p-4 bg-slate-50 rounded-2xl font-bold text-center"></div>

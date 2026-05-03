@@ -50,12 +50,13 @@
             let monthlySettle = 0; let monthlySales = 0;
             let totalSettle = 0; let totalSales = 0;
             const filterMonth = document.getElementById('monthFilter').value;
+            const monthlyChartData = {}; // 그래프용 별도 집계
 
             Object.values(allRecords).forEach(rec => {
                 let prod = rec.product || "";
-                // 고양이 인형 명칭 완전 통합
                 if (prod === "고양이 인형 대" || prod === "고양이 인형 걸이") prod = "고양이 인형";
 
+                // 전체 재고 집계 (정산용 '결제' 등 제외)
                 if (prod !== "결제" && prod !== "통합 정산") {
                     if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                     summary[prod].supply += Number(rec.supplyCount || 0);
@@ -67,14 +68,19 @@
                 totalSettle += sAmount;
                 totalSales += sQty;
 
+                // 이번 달 필터링
                 if (rec.date && rec.date.startsWith(filterMonth)) {
                     monthlySettle += sAmount;
                     monthlySales += sQty;
+                    // 그래프 데이터 쌓기 (정산 항목만)
+                    if (sQty > 0) {
+                        monthlyChartData[prod] = (monthlyChartData[prod] || 0) + sQty;
+                    }
                 }
             });
             renderTable(summary);
             renderStats(monthlySettle, monthlySales, totalSettle, totalSales);
-            updateChart(summary);
+            updateChart(monthlyChartData);
         }
 
         function renderTable(summary) {
@@ -114,18 +120,32 @@
             document.getElementById('tCount').innerText = tSales + '개';
         }
 
-        function updateChart(summary) {
+        function updateChart(chartData) {
             const ctx = document.getElementById('salesChart').getContext('2d');
-            const labels = Object.keys(summary).filter(k => summary[k].sales > 0);
-            const data = labels.map(k => summary[k].sales);
+            let labels = Object.keys(chartData);
+            let data = Object.values(chartData);
+            let colors = ['#ffffff', '#ffd9b3', '#ffcc99', '#ffb366', '#ff9933'];
+
+            // 데이터가 없을 때 빈 그래프 표시
+            if (data.length === 0) {
+                labels = ['기록 없음'];
+                data = [1];
+                colors = ['rgba(255,255,255,0.2)'];
+            }
+
             if (mainChart) mainChart.destroy();
             mainChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: labels,
-                    datasets: [{ data: data, backgroundColor: ['#ffffff', '#ffd9b3', '#ffcc99', '#ffb366', '#ff9933'], borderWidth: 0 }]
+                    datasets: [{ data: data, backgroundColor: colors, borderWidth: 0 }]
                 },
-                options: { plugins: { legend: { display: false } }, cutout: '80%' }
+                options: { 
+                    plugins: { legend: { display: false }, tooltip: { enabled: data[0] !== 1 || labels[0] !== '기록 없음' } }, 
+                    cutout: '80%',
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
             });
         }
 
@@ -144,10 +164,8 @@
             });
             filtered.sort((a, b) => new Date(b[1].date) - new Date(a[1].date));
             filtered.forEach(([id, rec]) => {
-                // 기록 내역에서도 명칭 통합
                 let displayName = rec.product;
                 if (displayName === "고양이 인형 대" || displayName === "고양이 인형 걸이") displayName = "고양이 인형";
-                
                 const div = document.createElement('div');
                 div.className = "bg-white p-4 rounded-2xl mb-3 shadow-sm border border-gray-100";
                 div.innerHTML = `
@@ -204,7 +222,10 @@
         <section class="orange-grad rounded-[2.5rem] p-8 shadow-2xl text-white space-y-8 relative overflow-hidden">
             <div class="relative z-10"><p class="text-[10px] font-black opacity-80 uppercase tracking-widest mb-1">Monthly Profit</p><p id="mAmount" class="text-5xl font-black mb-1">0원</p><p class="text-xs font-bold opacity-90">이달 판매량: <span id="mCount">0개</span></p></div>
             <div class="flex items-center justify-between pt-6 border-t border-white/20 relative z-10"><div><p class="text-[10px] font-bold opacity-70">누적 정산액</p><p id="tAmount" class="text-lg font-black">0원</p></div><div class="text-right"><p class="text-[10px] font-bold opacity-70">누적 판매수</p><p id="tCount" class="text-lg font-black">0개</p></div></div>
-            <div class="absolute -right-4 top-4 w-32 h-32 opacity-20"><canvas id="salesChart"></canvas></div>
+            <!-- 그래프 크기 고정 및 위치 조정 -->
+            <div class="absolute -right-4 top-6 w-32 h-32">
+                <canvas id="salesChart"></canvas>
+            </div>
         </section>
 
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
@@ -213,8 +234,6 @@
                 <tbody id="inventoryBody" class="divide-y divide-slate-50"></tbody>
             </table>
         </section>
-
-        <section id="detailSection" class="hidden bg-white p-6 rounded-[2.5rem] border border-slate-200"><div class="flex justify-between items-center mb-4"><h3 id="detailTitle" class="font-black text-slate-700"></h3><button onclick="document.getElementById('detailSection').classList.add('hidden')" class="text-slate-400 font-bold">CLOSE</button></div><div id="detailList" class="space-y-2"></div></section>
 
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4 z-50">
             <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-900 text-white p-5 rounded-[2rem] font-black shadow-2xl flex items-center justify-center gap-2">📦 수량 기록</button>
@@ -227,13 +246,7 @@
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" onchange="toggleEtc('bProd', 'bEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option>
-                <option value="고양이 인형">고양이 인형</option>
-                <option value="고양이 키링">고양이 키링</option>
-                <option value="북커버">북커버</option>
-                <option value="양면 파우치">양면 파우치</option>
-                <option value="꽃수세미">꽃수세미</option>
-                <option value="크로스백">크로스백</option>
-                <option value="기타">기타 직접입력</option>
+                <option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option><option value="기타">기타 직접입력</option>
             </select>
             <input type="text" id="bEtc" placeholder="제품명 입력" class="hidden w-full p-4 bg-orange-50 rounded-2xl border-none font-bold ring-2 ring-orange-100">
             <div class="grid grid-cols-2 gap-3">
@@ -248,14 +261,7 @@
             <h2 class="font-black text-lg text-orange-600">정산 및 재고 연동</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="sProd" onchange="toggleEtc('sProd', 'sEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
-                <option value="통합 정산">통합 정산</option>
-                <option value="고양이 인형">고양이 인형</option>
-                <option value="고양이 키링">고양이 키링</option>
-                <option value="북커버">북커버</option>
-                <option value="양면 파우치">양면 파우치</option>
-                <option value="꽃수세미">꽃수세미</option>
-                <option value="크로스백">크로스백</option>
-                <option value="기타">기타 직접입력</option>
+                <option value="통합 정산">통합 정산</option><option value="고양이 인형">고양이 인형</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option><option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option><option value="크로스백">크로스백</option><option value="기타">기타 직접입력</option>
             </select>
             <div class="p-6 bg-orange-50 rounded-[2.5rem] space-y-4">
                 <div class="grid grid-cols-2 gap-3"><input type="number" id="sPrice" placeholder="소비자가" oninput="calcSettle('rate')" class="p-4 bg-white rounded-2xl border-none text-sm font-bold shadow-sm"><input type="number" id="sRate" placeholder="정산율(%)" oninput="calcSettle('rate')" class="p-4 bg-white rounded-2xl border-none text-sm font-bold text-orange-500 shadow-sm"></div>

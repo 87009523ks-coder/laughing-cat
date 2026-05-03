@@ -40,7 +40,8 @@
             });
 
             onValue(ref(db, 'settings/order'), (snapshot) => {
-                productOrder = snapshot.val() || ["고양이 인형 대", "고양이 인형 걸이", "고양이 키링", "북커버", "양면 파우치"];
+                // 통합된 순서 기본값 설정
+                productOrder = snapshot.val() || ["고양이 인형", "고양이 키링", "북커버", "양면 파우치", "꽃수세미", "크로스백"];
                 if (Object.keys(allRecords).length > 0) processData();
             });
         }
@@ -52,8 +53,13 @@
             const filterMonth = document.getElementById('monthFilter').value;
 
             Object.values(allRecords).forEach(rec => {
-                const prod = rec.product || "";
-                // '결제' 항목은 재고 집계에서 제외하되 실적에는 포함
+                let prod = rec.product || "";
+                
+                // [통합 로직] '대'와 '걸이'를 '고양이 인형'으로 합산
+                if (prod === "고양이 인형 대" || prod === "고양이 인형 걸이") {
+                    prod = "고양이 인형";
+                }
+
                 if (prod !== "결제" && prod !== "통합 정산 (결제)") {
                     if (!summary[prod]) summary[prod] = { supply: 0, sales: 0 };
                     summary[prod].supply += Number(rec.supplyCount || 0);
@@ -78,8 +84,11 @@
         function renderTable(summary) {
             const body = document.getElementById('inventoryBody');
             body.innerHTML = '';
-            const currentProducts = Object.keys(summary);
-            let displayList = productOrder.filter(p => currentProducts.includes(p) || productOrder.includes(p));
+            
+            // 삭제할 항목 제외하고 표시
+            const exclude = ["고양이 인형 대", "고양이 인형 걸이"];
+            const currentProducts = Object.keys(summary).filter(p => !exclude.includes(p));
+            let displayList = productOrder.filter(p => !exclude.includes(p) && (currentProducts.includes(p) || productOrder.includes(p)));
             currentProducts.forEach(p => { if(!displayList.includes(p)) displayList.push(p); });
 
             displayList.forEach(name => {
@@ -141,7 +150,17 @@
             const list = document.getElementById('detailList');
             list.innerHTML = '';
             
-            let filtered = Object.entries(allRecords).filter(([id, rec]) => mode === 'product' ? rec.product === value : rec.date.startsWith(value));
+            // 상세 내역에서도 '대/걸이' 데이터를 '고양이 인형' 조회 시 함께 보여줌
+            let filtered = Object.entries(allRecords).filter(([id, rec]) => {
+                if (mode === 'product') {
+                    if (value === "고양이 인형") {
+                        return rec.product === "고양이 인형" || rec.product === "고양이 인형 대" || rec.product === "고양이 인형 걸이";
+                    }
+                    return rec.product === value;
+                }
+                return rec.date.startsWith(value);
+            });
+            
             filtered.sort((a, b) => new Date(b[1].date) - new Date(a[1].date));
             
             filtered.forEach(([id, rec]) => {
@@ -205,7 +224,7 @@
 </head>
 <body class="bg-slate-50 p-4 pb-40 font-sans tracking-tight">
     <div class="max-w-md mx-auto space-y-5">
-        <!-- 상단 헤더 -->
+        <!-- 헤더 및 대시보드 (동일) -->
         <header class="flex justify-between items-end py-2">
             <div>
                 <h1 class="text-2xl font-black text-slate-800">웃는 고양이 <span class="text-orange-500">MGR</span></h1>
@@ -214,26 +233,22 @@
             <input type="month" id="monthFilter" onchange="processData()" class="bg-white border-none rounded-full px-4 py-2 text-xs font-bold shadow-sm focus:ring-2 ring-orange-500">
         </header>
 
-        <!-- 대시보드 카드 -->
         <section class="bg-white rounded-[2.5rem] p-6 shadow-xl shadow-orange-100 border border-orange-50 space-y-6">
             <div class="flex items-center justify-between">
                 <div class="space-y-1">
-                    <p class="text-[10px] font-black text-orange-400 uppercase tracking-widest">Selected Month Profit</p>
+                    <p class="text-[10px] font-black text-orange-400 uppercase tracking-widest">Monthly Profit</p>
                     <p id="mAmount" class="text-4xl font-black text-slate-800">0원</p>
                     <p class="text-xs font-bold text-slate-400">총 판매량: <span id="mCount" class="text-orange-500">0개</span></p>
                 </div>
-                <div class="w-24 h-24">
-                    <canvas id="salesChart"></canvas>
-                </div>
+                <div class="w-24 h-24"><canvas id="salesChart"></canvas></div>
             </div>
-            
             <div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
                 <div><p class="text-[10px] font-bold text-slate-400">누적 정산액</p><p id="tAmount" class="text-sm font-black text-slate-700">0원</p></div>
                 <div class="text-right"><p class="text-[10px] font-bold text-slate-400">누적 판매수</p><p id="tCount" class="text-sm font-black text-slate-700">0개</p></div>
             </div>
         </section>
 
-        <!-- 재고 리스트 테이블 -->
+        <!-- 재고 리스트 -->
         <section class="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-slate-100">
             <table class="w-full">
                 <thead class="bg-slate-50/50">
@@ -245,28 +260,24 @@
             </table>
         </section>
 
-        <!-- 상세 내역 (날짜별 조회 시 활용) -->
         <section id="detailSection" class="hidden bg-slate-100 p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200">
-            <div class="flex justify-between items-center mb-4">
-                <h3 id="detailTitle" class="font-black text-slate-700"></h3>
-                <button onclick="document.getElementById('detailSection').classList.add('hidden')" class="text-slate-400">닫기</button>
-            </div>
+            <div class="flex justify-between items-center mb-4"><h3 id="detailTitle" class="font-black text-slate-700"></h3><button onclick="document.getElementById('detailSection').classList.add('hidden')" class="text-slate-400">닫기</button></div>
             <div id="detailList" class="space-y-2"></div>
         </section>
 
-        <!-- 하단 고정 플로팅 버튼 -->
+        <!-- 하단 버튼 -->
         <div class="fixed bottom-8 left-4 right-4 max-w-md mx-auto grid grid-cols-2 gap-4">
-            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-800 text-white p-5 rounded-3xl font-black shadow-2xl hover:scale-95 transition-transform">📦 수량 기록</button>
-            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-3xl font-black shadow-2xl hover:scale-95 transition-transform">💰 정산 기록</button>
+            <button onclick="document.getElementById('basicInput').classList.toggle('hidden'); document.getElementById('settleInput').classList.add('hidden')" class="bg-slate-800 text-white p-5 rounded-3xl font-black shadow-2xl">📦 수량 기록</button>
+            <button onclick="document.getElementById('settleInput').classList.toggle('hidden'); document.getElementById('basicInput').classList.add('hidden')" class="bg-orange-500 text-white p-5 rounded-3xl font-black shadow-2xl">💰 정산 기록</button>
         </div>
 
-        <!-- 입력창들은 디자인만 소폭 개선하여 유지 (로직은 재고 연동 포함) -->
+        <!-- 수량 기록창 (목록 수정됨) -->
         <section id="basicInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-slate-800 space-y-4">
             <h2 class="font-black text-lg">납품/재고 직접 조정</h2>
             <input type="date" id="bDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="bProd" onchange="toggleEtc('bProd', 'bEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="">제품 선택</option>
-                <option value="고양이 인형 대">고양이 인형 대</option><option value="고양이 인형 걸이">고양이 인형 걸이</option>
+                <option value="고양이 인형">고양이 인형 (통합)</option>
                 <option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option>
                 <option value="양면 파우치">양면 파우치</option><option value="꽃수세미">꽃수세미</option>
                 <option value="크로스백">크로스백</option><option value="기타">기타 직접입력</option>
@@ -279,12 +290,14 @@
             <button onclick="saveData('basic')" class="w-full bg-slate-800 text-white p-5 rounded-2xl font-black">데이터 반영</button>
         </section>
 
+        <!-- 정산 기록창 (목록 수정됨) -->
         <section id="settleInput" class="hidden bg-white p-8 rounded-[3rem] shadow-2xl border-t-8 border-orange-500 space-y-4">
             <h2 class="font-black text-lg text-orange-500">정산 기록 및 자동 재고 차감</h2>
             <input type="date" id="sDate" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
             <select id="sProd" onchange="toggleEtc('sProd', 'sEtc')" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold">
                 <option value="결제">통합 정산 (결제)</option>
-                <option value="고양이 인형 대">고양이 인형 대</option><option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option>
+                <option value="고양이 인형">고양이 인형 (통합)</option>
+                <option value="고양이 키링">고양이 키링</option><option value="북커버">북커버</option>
                 <option value="기타">기타 직접입력</option>
             </select>
             <div class="p-5 bg-orange-50 rounded-[2rem] space-y-3">
